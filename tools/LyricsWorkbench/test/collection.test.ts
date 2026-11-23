@@ -34,8 +34,8 @@ test('provider uses fixed hosts and normalizes paging, durations and credits', a
       ] },
     ] });
     if (url.pathname === '/ws/2/recording/r') {
-      assert.equal(url.searchParams.get('inc'), 'releases');
-      return Response.json({ id: 'r', releases: [{ title: 'Album' }] });
+      assert.equal(url.searchParams.get('inc'), 'releases+isrcs');
+      return Response.json({ id: 'r', releases: [{ title: 'Album' }], isrcs: ['us-abc-20-00002', 'wrong'] });
     }
     if (url.pathname === '/ws/2/recording') {
       if (url.searchParams.get('inc') !== 'artist-credits') return Response.json({ error: 'invalid inc' }, { status: 400 });
@@ -55,6 +55,7 @@ test('provider uses fixed hosts and normalizes paging, durations and credits', a
   assert.equal(page.next, 52);
   const { track, result } = await sources.collect(page.tracks[0]);
   assert.deepEqual(track.albums, ['Album']);
+  assert.deepEqual(track.isrcs, ['USABC2000002']);
   assert.equal(result.status, 'timed');
   assert.deepEqual(seen.map(url => url.host), ['musicbrainz.org', 'musicbrainz.org', 'musicbrainz.org', 'lrclib.net']);
   assert.equal(seen[1].searchParams.get('offset'), '50');

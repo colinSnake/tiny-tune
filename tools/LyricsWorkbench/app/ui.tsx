@@ -5,7 +5,7 @@ export const statusLabels: Record<ItemState['status'], string> = {
   instrumental: '纯音乐', missing: '未找到', error: '请求失败',
 };
 
-type IconName = 'wave' | 'search' | 'arrow' | 'download' | 'audio' | 'play' | 'record' | 'close' | 'list';
+type IconName = 'wave' | 'search' | 'arrow' | 'download' | 'audio' | 'play' | 'record' | 'close' | 'list' | 'folder' | 'link';
 const paths: Record<IconName, string> = {
   wave: 'M3 12h2m2-4v8m4-12v16m4-13v10m4-7v4m2-2h1',
   search: 'M21 21l-4.4-4.4M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',
@@ -15,6 +15,8 @@ const paths: Record<IconName, string> = {
   play: 'm8 5 12 7-12 7Z',
   record: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
   close: 'm6 6 12 12M18 6 6 18',
+  folder: 'M3 5h7l2 2h9v12H3Zm0 5h18',
+  link: 'm10 13 4-4m-6 6-2 2a3 3 0 0 1-4-4l4-4a3 3 0 0 1 4 0m4 0 2-2a3 3 0 0 1 4 4l-4 4a3 3 0 0 1-4 0',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.1M4 12h.1M4 18h.1',
 };
 

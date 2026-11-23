@@ -1,8 +1,10 @@
+import { parseIsrc } from './audio';
+import { BodyTooLarge, readBounded } from './response-body';
 import { matchLyrics } from './match';
 import type { Artist, LyricCandidate, Track, TrackPage } from './types';
 
 export class UpstreamError extends Error {
-  constructor(message: string, readonly retryAt?: number) { super(message); }
+  constructor(message: string, readonly retryAt?: number, readonly status?: 429 | 503) { super(message); }
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
@@ -14,37 +16,55 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, 
 const defaultClock = { now: Date.now, sleep, random: Math.random };
 
 export class RequestQueue {
-  private tail: Promise<unknown> = Promise.resolve();
+  private pending: (() => Promise<void>)[] = [];
+  private busy = false;
   private available = 0;
+  private cooldown?: UpstreamError;
   constructor(private spacing: number, private from: 'start' | 'end', private clock = defaultClock) {}
 
-  json(request: (signal: AbortSignal) => Promise<Response>, signal?: AbortSignal): Promise<unknown> {
+  private drain() {
+    if (this.busy) return;
+    const next = this.pending.shift();
+    if (!next) return;
+    this.busy = true;
+    void next().finally(() => { this.busy = false; this.drain(); });
+  }
+
+  json(request: (signal: AbortSignal) => Promise<Response>, signal?: AbortSignal, maxBytes?: number): Promise<unknown> {
     const execute = async () => {
       for (let attempt = 0; ; attempt++) {
         signal?.throwIfAborted();
         const delay = this.available - this.clock.now();
-        if (delay > 12_000) throw new UpstreamError('数据源限流，请稍后再试。', this.available);
+        if (delay > 12_000) throw this.cooldown?.retryAt === this.available
+          ? this.cooldown : new UpstreamError('数据源限流，请稍后再试。', this.available);
         if (delay > 0) await this.clock.sleep(delay, signal);
         signal?.throwIfAborted();
         const started = this.clock.now();
         const timeout = AbortSignal.timeout(12_000);
         try {
-          const response = await request(signal ? AbortSignal.any([signal, timeout]) : timeout);
+          const abort = signal ? AbortSignal.any([signal, timeout]) : timeout;
+          const response = await request(abort);
           if (response.status === 429 || response.status === 503) {
             const header = response.headers.get('Retry-After');
             const wait = header && /^\d+$/.test(header) ? Number(header) * 1000 : header ? Date.parse(header) - this.clock.now() : 2000;
             const base = Number.isFinite(wait) ? Math.max(1000, wait) : 2000;
             this.available = this.clock.now() + base + Math.ceil(base * 0.2 * this.clock.random());
+            const detail = response.status === 429 ? '数据源限流，请稍后再试。' : '数据源暂时不可用，请稍后再试。';
+            this.cooldown = new UpstreamError(detail, this.available, response.status);
             await response.body?.cancel();
             if (!attempt && base <= 10_000) continue;
-            throw new UpstreamError('数据源繁忙或限流，请稍后再试。', this.available);
+            throw this.cooldown;
           }
           if (!response.ok || !response.headers.get('content-type')?.includes('json')) {
             await response.body?.cancel();
             throw new UpstreamError(`数据源返回异常响应（HTTP ${response.status}）。`);
           }
-          try { return await response.json(); }
-          catch { throw new UpstreamError('数据源返回了无法解析的数据。'); }
+          try {
+            return maxBytes === undefined ? await response.json() : JSON.parse((await readBounded(response, maxBytes, abort)).toString('utf8'));
+          } catch (error) {
+            abort.throwIfAborted();
+            throw new UpstreamError(error instanceof BodyTooLarge ? '数据源返回的数据超过大小上限。' : '数据源返回了无法解析的数据。');
+          }
         } catch (error) {
           signal?.throwIfAborted();
           if (error instanceof UpstreamError) throw error;
@@ -54,9 +74,21 @@ export class RequestQueue {
         }
       }
     };
-    const job = this.tail.then(execute);
-    this.tail = job.catch(() => undefined);
-    return job;
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) { reject(signal.reason); return; }
+      const cancel = () => {
+        const index = this.pending.indexOf(run);
+        if (index !== -1) this.pending.splice(index, 1);
+        reject(signal?.reason);
+      };
+      const run = () => {
+        signal?.removeEventListener('abort', cancel);
+        return execute().then(resolve, reject);
+      };
+      signal?.addEventListener('abort', cancel, { once: true });
+      this.pending.push(run);
+      this.drain();
+    });
   }
 }
 
@@ -80,14 +112,14 @@ export class MusicSources {
     this.lrc = new RequestQueue(spacing, 'end');
   }
 
-  private query(source: 'catalog' | 'lyrics', path: string, params: Record<string, string>, signal?: AbortSignal) {
+  private query(source: 'catalog' | 'lyrics', path: string, params: Record<string, string>, signal?: AbortSignal, maxBytes?: number) {
     const url = new URL(path, source === 'catalog' ? 'https://musicbrainz.org' : 'https://lrclib.net');
     url.search = new URLSearchParams(params).toString();
     const headers: Record<string, string> = { 'User-Agent': agent, Accept: 'application/json' };
     const key = source === 'lyrics' ? process.env.LRCLIB_API_KEY : undefined;
     if (key) headers['Lrclib-Api-Key'] = key;
     return (source === 'catalog' ? this.mb : this.lrc).json(abort =>
-      this.request(url, { signal: abort, headers, redirect: 'error', cache: 'no-store' }), signal);
+      this.request(url, { signal: abort, headers, redirect: 'error', cache: 'no-store' }), signal, maxBytes);
   }
 
   async artists(name: string, signal?: AbortSignal): Promise<Artist[]> {
@@ -140,27 +172,39 @@ export class MusicSources {
     // MusicBrainz accepts `releases` on recording lookup, but not on recording browse.
     let full = track;
     if (!track.albums.length) {
-      const row = object(await this.query('catalog', `/ws/2/recording/${encodeURIComponent(track.id)}`, { fmt: 'json', inc: 'releases' }, signal));
+      const row = object(await this.query('catalog', `/ws/2/recording/${encodeURIComponent(track.id)}`, { fmt: 'json', inc: 'releases+isrcs' }, signal));
       if (row.id !== track.id) throw new UpstreamError('无法核对曲目的专辑信息。');
       const releases = Array.isArray(row.releases) ? row.releases : [];
-      full = { ...track, albums: [...new Set(releases.map(x => string(object(x).title)).filter(Boolean))].slice(0, 24) };
+      const isrcs = [...new Set((Array.isArray(row.isrcs) ? row.isrcs : []).map(x => parseIsrc(string(x))).filter(Boolean))].slice(0, 24);
+      full = { ...track, albums: [...new Set(releases.map(x => string(object(x).title)).filter(Boolean))].slice(0, 24),
+        ...(isrcs.length ? { isrcs } : {}) };
     }
     return { track: full, result: await this.lyrics(full, signal) };
   }
 
+  private lyricCandidate(row: Row): LyricCandidate {
+    const id = positive(row.id);
+    const title = (string(row.trackName) || string(row.name)).trim();
+    const artist = string(row.artistName).trim();
+    if (id === null || !Number.isSafeInteger(id) || !title || !artist) throw new UpstreamError('数据源返回了无效的歌词记录。');
+    return { id, title, artist, album: string(row.albumName).trim(), duration: positive(row.duration),
+      instrumental: row.instrumental === true, synced: string(row.syncedLyrics, 1_048_576), plain: string(row.plainLyrics, 1_048_576) };
+  }
+
+  async searchLyrics(query: string, signal?: AbortSignal) {
+    const data = await this.query('lyrics', '/api/search', { q: query }, signal, 512 * 1024);
+    return rows(data, 'lyrics').slice(0, 20).map(row => this.lyricCandidate(row));
+  }
+
+  async lyricRecord(id: string, signal?: AbortSignal) {
+    if (!/^[1-9]\d{0,11}$/.test(id)) throw new UpstreamError('无效的歌词记录 ID。');
+    const row = object(await this.query('lyrics', `/api/get/${id}`, {}, signal, 128 * 1024));
+    if (String(row.id) !== id) throw new UpstreamError('歌词来源返回了不同的记录。');
+    return this.lyricCandidate(row);
+  }
+
   async lyrics(track: Track, signal?: AbortSignal) {
     const data = await this.query('lyrics', '/api/search', { track_name: track.title, artist_name: track.artist }, signal);
-    const candidates: LyricCandidate[] = [];
-    for (const row of rows(data, 'lyrics').slice(0, 20)) {
-      const id = positive(row.id);
-      const title = string(row.trackName) || string(row.name);
-      const artist = string(row.artistName);
-      const synced = string(row.syncedLyrics, 1_048_576);
-      const plain = string(row.plainLyrics, 1_048_576);
-      if (id === null || !title || !artist) throw new UpstreamError('数据源返回了无效的歌词记录。');
-      candidates.push({ id, title, artist, album: string(row.albumName), duration: positive(row.duration),
-        instrumental: row.instrumental === true, synced, plain });
-    }
-    return matchLyrics(track, candidates);
+    return matchLyrics(track, rows(data, 'lyrics').slice(0, 20).map(row => this.lyricCandidate(row)));
   }
 }

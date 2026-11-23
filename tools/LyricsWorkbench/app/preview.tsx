@@ -1,28 +1,65 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { fullTrackSync, matchAudio, resolveLocalAudio } from '../src/audio';
 import { demoAudio } from '../src/demo';
 import { lrcFilename, lyricText } from '../src/export';
 import { activeIndex, formatTime, parseLrc } from '../src/lrc';
 import { candidateResult } from '../src/match';
-import type { CollectionItem, LyricCandidate, LyricResult } from '../src/types';
+import type { CollectionItem, LyricCandidate, LyricResult, Track } from '../src/types';
+import type { AudioLibrary } from './audio-library';
+import { AudioPanel, type PlayerSource } from './audio-panel';
 import { download, Icon, Status } from './ui';
+import { LoadingLyrics } from './loading';
 
-export function Preview({ item, onConfirm }: { item: CollectionItem; onConfirm: (result: LyricResult) => void }) {
+export function Preview({ item, recordings, library, matching, onMatch, onConfirm }: {
+  item: CollectionItem; recordings: Track[]; library: AudioLibrary; matching: boolean;
+  onMatch: () => void; onConfirm: (result: LyricResult) => void;
+}) {
   const { track, result } = item;
-  const [candidate, setCandidate] = useState<LyricCandidate>();
-  const shown = result.status === 'review' && candidate ? candidateResult(candidate) : result;
+  const binding = library.bindings.get(track.id);
+  const { automatic, candidates } = useMemo(() => matchAudio(track, library.files, recordings), [track, library.files, recordings]);
+  const local = resolveLocalAudio(binding, library.files, automatic);
+  const missing = binding?.kind === 'local' && !library.files.some(file => file.id === binding.audioId);
+  const isDemo = track.id === 'demo-window' || track.id === 'demo-paper';
+  const sample = useMemo(() => isDemo && !binding ? demoAudio(track.id === 'demo-paper' ? 2 : 0) : undefined, [track.id, isDemo, binding]);
+  let source: PlayerSource | undefined;
+  if (local) source = { key: local.id, label: local.name, file: local.file, localName: local.name,
+    provenance: !binding || (binding.kind === 'local' && binding.automatic) ? '本地曲库 · 自动配对' : '本地曲库 · 手动确认', coverage: 'full' };
+  else if (binding?.kind === 'link') source = { key: binding.url, url: binding.url, label: '在线音频',
+    provenance: new URL(binding.url).hostname, coverage: binding.coverage };
+  else if (sample) source = { key: track.id, file: sample, label: '合成试听样例', provenance: '本地生成 · 无需联网', coverage: 'full' };
+
+  const [blobUrl, setBlobUrl] = useState<{ file: Blob; url: string }>();
+  const file = source?.file;
+  useEffect(() => {
+    if (!file) { setBlobUrl(undefined); return; }
+    const url = URL.createObjectURL(file);
+    setBlobUrl({ file, url });
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  const url = source?.url ?? (file && file === blobUrl?.file ? blobUrl.url : undefined);
+  const [media, setMedia] = useState<{ url?: string; duration: number | null; clock: number; error?: string }>({ duration: null, clock: 0 });
+  const duration = media.url === url ? media.duration : null;
+  const clock = media.url === url ? media.clock : 0;
+  const audioError = media.url === url ? media.error : undefined;
+  const [choiceId, setChoiceId] = useState<number>();
+  const chosen = result.status === 'review' ? result.candidates.find(c => c.id === choiceId) : undefined;
+  const shown = chosen ? candidateResult(chosen) : result;
   const lyric = lyricText(shown);
   const { cues, plain } = useMemo(() => parseLrc(lyric ?? ''), [lyric]);
-  const [audio, setAudio] = useState<{ file: string; url: string }>();
-  const [audioError, setAudioError] = useState('');
-  const [clock, setClock] = useState(0);
-  const [duration, setDuration] = useState<number | null>(null);
+  const expected = shown.status === 'timed' ? shown.candidate.duration ?? track.duration : track.duration;
+  const isSync = !!source && !chosen && cues.length > 0 && fullTrackSync(duration, expected, (cues.at(-1)?.ms ?? 0) / 1000, source.coverage, track.duration);
+  const active = isSync ? activeIndex(cues, clock) : -1;
   const [follows, setFollows] = useState(true);
+  const [seekHint, setSeekHint] = useState('');
   const player = useRef<HTMLAudioElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
-  const active = duration !== null ? activeIndex(cues, clock) : -1;
+
   useEffect(() => {
-    return () => { if (audio) URL.revokeObjectURL(audio.url); };
-  }, [audio]);
+    if (library.ready && !binding && automatic && !isDemo && fullTrackSync(duration, track.duration, 0, 'full')) {
+      library.bind(track.id, { kind: 'local', audioId: automatic.id, automatic: true });
+    }
+  }, [library, binding, automatic, duration, track.id, track.duration, isDemo]);
+  useEffect(() => { setFollows(true); setSeekHint(''); }, [url]);
   useEffect(() => {
     if (!follows || active < 0) return;
     const box = timeline.current;
@@ -31,68 +68,68 @@ export function Preview({ item, onConfirm }: { item: CollectionItem; onConfirm: 
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   }, [follows, active]);
 
-  function attach(file: string, blob: Blob) {
-    setAudio({ file, url: URL.createObjectURL(blob) });
-    setClock(0); setDuration(null); setFollows(true); setAudioError('');
-  }
-  function seek(seconds: number) {
-    if (player.current && duration !== null && seconds <= duration) {
-      player.current.currentTime = seconds; setClock(seconds);
-    }
-  }
   const exportable = lyricText(result);
+  const syncMessage = source?.coverage === 'clip' ? '试听片段不使用整曲时码。' : chosen ? '确认歌词版本后才启用同步。'
+    : source && duration !== null && cues.length && !isSync ? '时长或时码与音源不符。可试听，请核对版本后再同步。'
+    : isSync ? '时间轴已同步，点歌词可跳转。' : '';
+  const canMatch = result.status === 'pending' || result.status === 'error' || result.status === 'missing';
+
   return <div className="preview-content">
     <div className="track-cover">
-      <span className="mini-record"><Icon name="record" size={27} /></span>
-      <div><h3>{track.title}</h3><p>{[track.artist, track.albums[0] || formatTime(track.duration)].filter(Boolean).join(' · ')}</p></div>
+      <span className="track-note" aria-hidden="true">🎵</span>
+      <div><p className="eyebrow">SESSION / 当前录音</p><h3>{track.title}</h3>
+        <p>{[track.artist, track.albums[0], track.duration !== null ? formatTime(track.duration) : '时长未知'].filter(Boolean).join(' · ')}</p></div>
     </div>
-    <div className="preview-meta"><Status result={result} />{'candidate' in shown && shown.candidate.id > 0 && <span>LRCLIB #{shown.candidate.id}</span>}</div>
+    <AudioPanel track={track} source={source} candidates={candidates} library={library} missing={missing}>
+      {url && <audio key={url} ref={player} controls src={url} preload="metadata" aria-label={`${track.title} 音频播放器`}
+        onLoadedMetadata={e => setMedia({ url, clock: e.currentTarget.currentTime, duration: Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : null })}
+        onTimeUpdate={e => { const clock = e.currentTarget.currentTime; setMedia(prev => prev.url === url ? { ...prev, clock } : prev); }}
+        onSeeked={e => { const clock = e.currentTarget.currentTime; setMedia(prev => prev.url === url ? { ...prev, clock } : prev); }}
+        onError={() => setMedia({ url, duration: null, clock: 0, error: '无法播放此音源。请检查音频格式、链接是否过期，或换用本地文件。' })} />}
+      {audioError && <p className="deck-note" role="alert">{audioError}</p>}
+      {!!syncMessage && <p className="deck-note">{syncMessage}</p>}
+      {isSync && seekHint && <p className="deck-note" role="status">{seekHint}</p>}
+    </AudioPanel>
+    <div className="timeline-caption"><strong>歌词时间轴</strong><Status result={result} />
+      {!follows && isSync && <button className="text-button" type="button" onClick={() => setFollows(true)}>回到当前句</button>}
+    </div>
     {result.status === 'review' && <div className="review-box">
-      <label htmlFor="candidate">核对候选的专辑、署名及时长</label>
-      <select id="candidate" value={candidate?.id ?? ''} onChange={event => setCandidate(result.candidates.find(c => String(c.id) === event.target.value))}>
-        <option value="">选择一个候选版本</option>
-        {result.candidates.map(c => <option key={c.id} value={c.id}>{c.title} · {c.artist} · {c.album || '未知专辑'} · {formatTime(c.duration)}</option>)}
+      <label htmlFor="candidate">核对歌词版本的专辑、署名及时长</label>
+      <select id="candidate" value={chosen?.id ?? ''} onChange={event => setChoiceId(event.target.value ? Number(event.target.value) : undefined)}>
+        <option value="">选择一个歌词版本</option>
+        {result.candidates.map((c: LyricCandidate) => <option key={c.id} value={c.id}>{c.title} · {c.artist} · {c.album || '未知专辑'} · {formatTime(c.duration)}</option>)}
       </select>
-      {candidate && <button className="button primary" onClick={() => onConfirm(candidateResult(candidate))}>确认这个版本</button>}
+      {chosen && <button className="button primary" type="button" onClick={() => onConfirm(candidateResult(chosen))}>确认歌词版本</button>}
     </div>}
-    <div className="audio-box">
-      {audio ? <>
-        <div className="audio-name"><Icon name="audio" size={15} /><span>{audio.file}</span>
-          <button type="button" onClick={() => { setAudio(undefined); setDuration(null); setAudioError(''); }} aria-label="移除本地音频"><Icon name="close" size={15} /></button></div>
-        <audio key={audio.url} ref={player} controls src={audio.url} preload="metadata"
-          onLoadedMetadata={e => { setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : null); }}
-          onTimeUpdate={e => setClock(e.currentTarget.currentTime)} onSeeked={e => setClock(e.currentTarget.currentTime)}
-          onError={() => { setDuration(null); setAudioError('浏览器无法播放这个文件。可以更换音频，或仅预览时码。'); }} />
-        {audioError && <p className="error-text" role="alert">{audioError}</p>}
-      </> : <>
-        <label className="button ghost file-button"><Icon name="audio" size={16} />选择本地音频
-          <input type="file" accept="audio/*,.flac,.wav,.m4a,.aac,.mp3,.ogg,.opus" onChange={e => {
-            const file = e.currentTarget.files?.[0]; if (file) attach(file.name, file);
-          }} />
-        </label>
-        {track.id === 'demo-window' && <button className="button text-button" onClick={() => attach('窗边的光.wav', demoAudio())}><Icon name="play" size={15} />载入试听样例</button>}
-        <small>音频不上传</small>
-      </>}
+    {cues.length ? <div ref={timeline} className="timeline" role="region" aria-label="时码歌词" tabIndex={0}
+      onWheel={() => setFollows(false)} onTouchMove={() => setFollows(false)}
+      onKeyDown={e => { if (['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) setFollows(false); }}>
+      {cues.map((cue, i) => cue.lines.length > 0 && <button key={cue.ms} type="button" data-line={i} aria-current={active === i ? 'true' : undefined}
+        className="lyric-line" disabled={!isSync} onClick={() => {
+          const audio = player.current, time = cue.ms / 1000;
+          if (!audio || !isSync) return;
+          const { seekable } = audio;
+          const canSeek = Array.from({ length: seekable.length }, (_, i) => i).some(i => time >= seekable.start(i) && time <= seekable.end(i));
+          if (!canSeek) { setSeekHint('这段音频暂不能跳转。可先播放等待缓冲，或换用本地文件。'); return; }
+          setSeekHint(''); audio.currentTime = time; setFollows(true);
+        }}>
+        <time>{formatTime(cue.ms / 1000, true)}</time><span>{cue.lines.join('\n')}</span>
+      </button>)}
+    </div> : plain ? <div className="timeline plain" aria-label="纯文本歌词">{plain}</div>
+      : result.status === 'running' ? <LoadingLyrics label="正在核对录音版本并查找歌词…" />
+      : <div className="lyric-placeholder">
+        <span>{result.status === 'error' ? result.message : {
+          pending: '还没有匹配这首的歌词。', review: '歌词版本不唯一，需要确认。',
+          instrumental: '纯音乐，没有歌词。', missing: '没有找到这个版本的歌词。', timed: '', plain: '',
+        }[result.status]}</span>
+        {canMatch && <button className="button ghost" type="button" disabled={matching || !library.ready} onClick={onMatch}>
+          {matching ? '等待当前匹配完成' : result.status === 'pending' ? '查找这首歌词' : '重新查找这首歌词'}</button>}
+      </div>}
+    <div className="preview-footer">
+      <small>{'candidate' in shown && (shown.candidate.id > 0 ? `歌词来源 · LRCLIB #${shown.candidate.id}` : '歌词来源 · 原创样例')}</small>
+      <button className="button ghost" type="button" disabled={exportable === null} onClick={() => {
+        if (exportable !== null) download(lrcFilename(source?.localName ?? track.title, !!source?.localName), new Blob([exportable], { type: 'text/plain;charset=utf-8' }));
+      }}><Icon name="download" size={16} /> 导出 .lrc</button>
     </div>
-    {cues.length ? <>
-      <div className="timeline-caption"><span>时码 / 歌词</span>
-        {!follows && duration !== null && <button className="text-button" onClick={() => setFollows(true)}>回到当前句</button>}
-      </div>
-      <div ref={timeline} className="timeline" role="region" aria-label="时码歌词" tabIndex={0}
-        onWheel={() => setFollows(false)} onTouchMove={() => setFollows(false)}
-        onKeyDown={e => { if (['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) setFollows(false); }}>
-        {cues.map((cue, i) => cue.lines.length > 0 && <button key={cue.ms} type="button" data-line={i} aria-current={active === i ? 'true' : undefined}
-          className="lyric-line" disabled={duration === null || cue.ms / 1000 > duration} onClick={() => seek(cue.ms / 1000)}>
-          <time>{formatTime(cue.ms / 1000, true)}</time><span>{cue.lines.join('\n')}</span>
-        </button>)}
-      </div>
-    </> : plain ? <div className="timeline plain" aria-label="纯文本歌词">{plain}</div>
-      : <p className="preview-note">{result.status === 'error' ? result.message : {
-        pending: '尚未匹配歌词。', running: '正在查找歌词…', review: '请选择并确认歌词版本。',
-        instrumental: '纯音乐，无歌词。', missing: '未找到歌词。', timed: '', plain: '',
-      }[result.status]}</p>}
-    <button className="button export-one" disabled={exportable === null} onClick={() => {
-      if (exportable !== null) download(lrcFilename(audio?.file || track.title, !!audio), new Blob([exportable], { type: 'text/plain;charset=utf-8' }));
-    }}><Icon name="download" size={17} /> 导出这首 .lrc</button>
   </div>;
 }

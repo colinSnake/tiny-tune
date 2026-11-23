@@ -1,4 +1,10 @@
-import type { ItemState, Track } from './types';
+import { normalize } from './match';
+import type { Artist, ItemState, Track } from './types';
+
+export function exactArtist(query: string, candidates: Artist[]) {
+  const [only] = candidates;
+  if (candidates.length === 1 && [only.name, ...only.aliases].some(name => normalize(name) === normalize(query))) return only;
+}
 
 export function mergeTracks(current: Track[], page: Track[]) {
   const combined = new Map(current.map(track => [track.id, track]));

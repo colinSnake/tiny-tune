@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="11" fill="#264f3b"/><path d="M10 20h1m4-5v10m5-16v22m5-17v12m5-8v4" fill="none" stroke="#fffdfa" stroke-width="2" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <symbol id="brand-note" viewBox="0 0 24 24">
+    <path d="M9 18V6.5L20 4v11.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <ellipse cx="6.5" cy="18.3" rx="3.5" ry="2.5" transform="rotate(-18 6.5 18.3)" fill="currentColor"/>
+    <ellipse cx="17.5" cy="15.8" rx="3.5" ry="2.5" transform="rotate(-18 17.5 15.8)" fill="currentColor"/>
+  </symbol>
+  <rect width="40" height="40" rx="11" fill="#264f3b"/>
+  <use href="#brand-note" x="8" y="8" width="24" height="24" color="#fffdfa"/>
+</svg>

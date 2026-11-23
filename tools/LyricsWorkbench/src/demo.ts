@@ -18,7 +18,7 @@ export const demoResults: Record<string, LyricResult> = Object.fromEntries(demoT
     plain: i === 1 ? '提笔时天色还浅\n白纸上没有方向\n留一点空位给风' : '', instrumental: false },
 }]));
 
-export function demoAudio(): Blob {
+export function demoAudio(variant = 0): Blob {
   const rate = 16_000, samples = 19 * rate;
   const data = new ArrayBuffer(44 + samples * 2), view = new DataView(data);
   const label = (offset: number, text: string) => [...text].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
@@ -27,7 +27,7 @@ export function demoAudio(): Blob {
   view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
   view.setUint16(32, 2, true); view.setUint16(34, 16, true); label(36, 'data'); view.setUint32(40, samples * 2, true);
   for (const [i, [start]] of lines.entries()) {
-    const base = Math.round(start * rate / 1000), note = [261.63, 329.63, 392, 349.23, 293.66, 440, 392, 261.63][i];
+    const base = Math.round(start * rate / 1000), note = [261.63, 329.63, 392, 349.23, 293.66, 440, 392, 261.63][(i + variant) % lines.length];
     for (let j = 0; j < rate * 1.6 && base + j < samples; j++) {
       const t = j / rate, phase = 2 * Math.PI * note * t;
       const gain = Math.min(1, t * 70) * Math.exp(-3.2 * t) * Math.min(1, (1.6 - t) * 16);

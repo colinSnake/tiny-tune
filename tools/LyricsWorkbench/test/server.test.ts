@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { Artist, Track } from '../src/types';
-import { type MusicSources, UpstreamError } from '../src/providers';
+import { MusicSources, UpstreamError } from '../src/providers';
 import { createServer } from '../src/server';
 
 const artistId = '12345678-1234-1234-1234-123456789abc';
@@ -155,4 +155,43 @@ test('Fastify serves Vite modules and the API on the same development origin', a
   assert.equal(unknownApi.status, 404);
   assert.match(unknownApi.headers.get('content-type') ?? '', /application\/json/);
   await unknownApi.arrayBuffer();
+});
+
+test('artist search reuses a recent success but refreshes it after expiry', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'] });
+  const fixture = testSources();
+  const server = await createServer({ sources: fixture.sources });
+  t.after(() => server.close());
+  const query = `/api/catalog?q=${encodeURIComponent(artist.name)}`;
+  assert.equal((await server.inject(query)).statusCode, 200);
+  assert.deepEqual((await server.inject(`${query}%20`)).json(), { artists: [artist] });
+  assert.equal(fixture.calls.length, 1, 'same query should not reach upstream again');
+  t.mock.timers.tick(30 * 60_000);
+  assert.equal((await server.inject(query)).statusCode, 200);
+  assert.equal(fixture.calls.length, 2, 'expired result should not be treated as fresh');
+});
+
+test('artist search reports upstream unavailability without labeling it a rate limit', async (t) => {
+  const source = new MusicSources(async () => new Response(null, { status: 503, headers: { 'Retry-After': '30' } }), 0);
+  const server = await createServer({ sources: source });
+  t.after(() => server.close());
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await server.inject('/api/catalog?q=test');
+    assert.equal(response.statusCode, 503);
+    assert.ok(Number(response.headers['retry-after']) > 0);
+    assert.ok(response.json().retryAt > Date.now());
+  }
+});
+
+test('temporary artist search failures are not cached as results', async (t) => {
+  let failed = false;
+  const fixture = testSources({ artists: async () => {
+    if (!failed) { failed = true; throw new UpstreamError('数据源限流', Date.now() + 60_000); }
+    return [artist];
+  } });
+  const server = await createServer({ sources: fixture.sources });
+  t.after(() => server.close());
+  const query = '/api/catalog?q=test';
+  assert.equal((await server.inject(query)).statusCode, 429);
+  assert.deepEqual((await server.inject(query)).json(), { artists: [artist] });
 });

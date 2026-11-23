@@ -33,7 +33,8 @@ export function exportEntries(items: CollectionItem[]) {
       files.push({ name: file, text });
     }
     return {
-      ...track, status: result.status, file,
+      id: track.id, title: track.title, artist: track.artist, albums: track.albums, duration: track.duration,
+      status: result.status, file,
       lyricSource: 'candidate' in result ? { provider: result.candidate.id < 0 ? 'demo' : 'LRCLIB', id: result.candidate.id } : null,
       error: result.status === 'error' ? result.message : null,
     };
