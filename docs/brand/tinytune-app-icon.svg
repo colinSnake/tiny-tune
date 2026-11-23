@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tinytune — Indigo Record</title>
+  <desc id="desc">An indigo record with a single lavender groove and a short tonearm on a blue-black tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#212334"/>
+      <stop offset="0.68" stop-color="#171924"/>
+      <stop offset="1" stop-color="#14161E"/>
+    </linearGradient>
+    <radialGradient id="ambient" cx="0.44" cy="0.38" r="0.58">
+      <stop stop-color="#443FA3" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#443FA3" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile-edge" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#B7BBFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#B7BBFF" stop-opacity="0.07"/>
+    </linearGradient>
+    <linearGradient id="vinyl" x1="0.12" y1="0.04" x2="0.86" y2="0.96">
+      <stop stop-color="#6961C9"/>
+      <stop offset="0.58" stop-color="#443FA3"/>
+      <stop offset="1" stop-color="#332D79"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0.2" y1="0.05" x2="0.78" y2="0.96">
+      <stop stop-color="#C9C6FF" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#A59AF0" stop-opacity="0.14"/>
+    </linearGradient>
+    <linearGradient id="groove" x1="0.15" y1="0.06" x2="0.8" y2="0.94">
+      <stop stop-color="#C6C8FF"/>
+      <stop offset="1" stop-color="#8F86DE"/>
+    </linearGradient>
+    <linearGradient id="label" x1="0.18" y1="0.08" x2="0.8" y2="0.95">
+      <stop stop-color="#D0D1FF"/>
+      <stop offset="1" stop-color="#ADA9F5"/>
+    </linearGradient>
+    <linearGradient id="arm" x1="742" y1="245" x2="781" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E2E1FF"/>
+      <stop offset="1" stop-color="#B7BBFF"/>
+    </linearGradient>
+  </defs>
+
+  <g id="tile-background">
+    <rect width="1024" height="1024" rx="228" fill="url(#tile)"/>
+    <rect width="1024" height="1024" rx="228" fill="url(#ambient)"/>
+    <rect x="2" y="2" width="1020" height="1020" rx="226" fill="none" stroke="url(#tile-edge)" stroke-width="4"/>
+  </g>
+
+  <g id="brand-mark" transform="translate(512 512) scale(1.12) translate(-512 -512)">
+    <g id="record">
+      <circle cx="473" cy="532" r="263" fill="url(#vinyl)"/>
+      <circle cx="473" cy="532" r="260" fill="none" stroke="url(#rim)" stroke-width="6"/>
+      <path d="M 667.65 490.63 A 199 199 0 1 1 581.38 365.10" fill="none" stroke="url(#groove)" stroke-width="32" stroke-linecap="round"/>
+      <path fill="url(#label)" fill-rule="evenodd" d="M 473 435 a 97 97 0 1 1 0 194 a 97 97 0 1 1 0 -194 Z M 473 501 a 31 31 0 1 0 0 62 a 31 31 0 1 0 0 -62 Z"/>
+    </g>
+    <g id="tonearm" fill="url(#arm)">
+      <path d="M 786 284 v 37 q 0 19 -12 34 l -28 34 q -5 6 -11 1 l -13 -10 q -6 -5 -1 -11 l 27 -33 q 7 -9 7 -19 v -33 Z"/>
+      <circle cx="770" cy="277" r="36"/>
+      <circle cx="770" cy="277" r="12" fill="#373262"/>
+    </g>
+  </g>
+</svg>

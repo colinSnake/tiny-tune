@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tinytune — Play T / Play-first</title>
+  <desc id="desc">A white play triangle with a lowercase t carved into its left edge. The mark sits on a violet-to-blue tile.</desc>
+  <defs>
+    <linearGradient id="violet-blue" x1="0.10" y1="0.05" x2="0.91" y2="0.92">
+      <stop stop-color="#704FE8"/>
+      <stop offset="1" stop-color="#3C62EB"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#violet-blue)"/>
+  <path id="play-t" fill="#FAF9FF" transform="translate(-11 11)"
+        d="M 330 448 V 280 Q 330 224 380 251 L 790 462
+           Q 854 498 790 534 L 380 749 Q 330 776 330 720 V 509 H 407 V 553
+           C 407 607 437 639 491 639 H 520 Q 551 639 551 608
+           Q 551 577 520 577 H 502 Q 469 577 469 543 V 509 H 553
+           Q 584 509 584 479 Q 584 448 553 448 H 469 V 376
+           Q 469 345 438 345 Q 407 345 407 376 V 448 Z"/>
+</svg>

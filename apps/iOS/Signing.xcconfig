@@ -1,0 +1,2 @@
+// Local device signing is optional and is not stored in Git.
+#include? "../../.local/tinytune-ios-signing.xcconfig"

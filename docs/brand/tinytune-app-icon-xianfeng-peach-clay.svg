@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tinytune · 弦风 · 桃陶</title>
+  <desc id="desc">蜜桃陶坯底 × 枣红乐器，琵琶与竹笛交叠。</desc>
+  <defs>
+    <linearGradient id="peach-clay" x1="0.10" y1="0.05" x2="0.91" y2="0.92">
+      <stop stop-color="#F9D1BF"/>
+      <stop offset="1" stop-color="#D88879"/>
+    </linearGradient>
+    <linearGradient id="bamboo" gradientUnits="userSpaceOnUse" x1="-43" y1="0" x2="44" y2="12">
+      <stop stop-color="#8D5449"/>
+      <stop offset="0.35" stop-color="#B77A6A"/>
+      <stop offset="0.72" stop-color="#A96B5E"/>
+      <stop offset="1" stop-color="#864C43"/>
+    </linearGradient>
+    <linearGradient id="bamboo-end" gradientUnits="userSpaceOnUse" x1="-43" y1="0" x2="45" y2="12">
+      <stop stop-color="#855249"/>
+      <stop offset="0.42" stop-color="#C08A75"/>
+      <stop offset="1" stop-color="#AC6F61"/>
+    </linearGradient>
+    <linearGradient id="enamel" gradientUnits="userSpaceOnUse" x1="-100" y1="-296" x2="128" y2="224">
+      <stop stop-color="#8B3D43"/>
+      <stop offset="0.43" stop-color="#9C4850"/>
+      <stop offset="0.63" stop-color="#92444B"/>
+      <stop offset="1" stop-color="#783239"/>
+    </linearGradient>
+    <linearGradient id="bevel" gradientUnits="userSpaceOnUse" x1="-72" y1="-246" x2="153" y2="221">
+      <stop stop-color="#A05857"/>
+      <stop offset="0.56" stop-color="#863C43"/>
+      <stop offset="1" stop-color="#64282F"/>
+    </linearGradient>
+    <linearGradient id="soundboard-glint" gradientUnits="userSpaceOnUse" x1="-105" y1="38" x2="139" y2="204">
+      <stop stop-color="#FFCCB1" stop-opacity="0"/>
+      <stop offset="0.60" stop-color="#BD7B70" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#572B39" stop-opacity="0.68"/>
+    </linearGradient>
+    <linearGradient id="strings" gradientUnits="userSpaceOnUse" x1="0" y1="-209" x2="0" y2="170">
+      <stop stop-color="#F6C0AA"/>
+      <stop offset="1" stop-color="#E7A294"/>
+    </linearGradient>
+    <path id="tube" d="M-27 -15 H27 Q43 -15 43 1 V407 Q43 420 30 420 H-30 Q-43 420 -43 407 V1 Q-43 -15 -27 -15Z"/>
+    <path id="pipa" d="
+      M-61 -308 C-40 -311 -12 -301 9 -283 C24 -270 30 -253 30 -231
+      L32 -125 C33 -99 47 -74 72 -51 C119 -8 154 46 157 105
+      C162 183 110 236 23 245 C-69 254 -143 222 -158 155
+      C-174 91 -146 29 -99 -26 C-67 -64 -35 -87 -34 -128 L-32 -231
+      C-31 -244 -42 -252 -60 -255 C-74 -257 -83 -266 -82 -279
+      L-81 -287 Q-79 -304 -61 -308Z"/>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#peach-clay)"/>
+  <g id="mark" transform="translate(512 511) scale(1.085) translate(-520 -517)">
+    <g id="bamboo-flute" transform="translate(746 280) rotate(33)">
+      <use href="#tube" transform="translate(8 9)" fill="#774135" opacity="0.2"/>
+      <use href="#tube" fill="url(#bamboo)"/>
+      <path d="M-27 -15 H27 Q43 -15 43 1 V17 H-43 V1 Q-43 -15 -27 -15Z" fill="url(#bamboo-end)"/>
+      <path d="M-42 17 H42" stroke="#713F39" stroke-width="6"/>
+      <ellipse cx="0" cy="-7" rx="23" ry="4" fill="#E5A891" opacity="0.88"/>
+      <g fill="#F4BBA3">
+        <circle cx="-1" cy="66" r="14"/>
+        <circle cx="-1" cy="130" r="14"/>
+      </g>
+    </g>
+    <g id="pipa-instrument" transform="translate(446 532) rotate(-24)">
+      <use href="#pipa" transform="translate(9 17)" fill="#642936" opacity="0.24"/>
+      <g id="tuning-pegs" fill="url(#bevel)">
+        <path d="M18 -244 H55 Q65 -244 65 -234 V-229 Q65 -219 55 -219 H18Z"/>
+        <path d="M18 -197 H49 Q59 -197 59 -187 V-182 Q59 -172 49 -172 H18Z"/>
+        <path d="M-51 -222 H-23 V-199 H-51 Q-61 -199 -61 -209 V-212 Q-61 -222 -51 -222Z"/>
+        <path d="M-47 -177 H-22 V-155 H-47 Q-57 -155 -57 -165 V-167 Q-57 -177 -47 -177Z"/>
+      </g>
+      <use href="#pipa" transform="translate(10 10)" fill="url(#bevel)"/>
+      <use href="#pipa" fill="url(#enamel)"/>
+      <path d="M76 -47 C99 16 89 90 41 151 C12 188 -25 218 -72 232
+        C-46 243 -13 249 23 245 C110 236 162 183 157 105 C154 48 120 -7 76 -47Z" fill="url(#soundboard-glint)"/>
+      <path d="M-69 -282 Q-51 -297 -22 -281 C-3 -270 5 -257 6 -243" fill="none" stroke="#F7C2AC" stroke-width="5" stroke-linecap="round" opacity="0.78"/>
+      <path d="M-12 -211 L-19 149 M12 -211 L19 149" fill="none" stroke="url(#strings)" stroke-width="12" stroke-linecap="round"/>
+      <g fill="none" stroke-linecap="round">
+        <path d="M-20 -159 H20 M-22 -127 H22 M-27 -95 H27" stroke="#DFA294" stroke-width="9"/>
+        <path d="M-45 153 Q0 159 45 153" stroke="#EBB3A0" stroke-width="20"/>
+      </g>
+    </g>
+  </g>
+</svg>

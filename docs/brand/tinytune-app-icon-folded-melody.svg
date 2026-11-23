@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tinytune — Folded Melody</title>
+  <desc id="desc">A single frosted ribbon folds into an asymmetric beat on Tinytune’s violet-to-blue tile.</desc>
+  <defs>
+    <linearGradient id="violet-blue" x1="0.10" y1="0.05" x2="0.91" y2="0.92">
+      <stop stop-color="#704FE8"/>
+      <stop offset="1" stop-color="#3C62EB"/>
+    </linearGradient>
+    <linearGradient id="left-face" gradientUnits="userSpaceOnUse" x1="248" y1="591" x2="447" y2="375">
+      <stop stop-color="#E2E1FF"/>
+      <stop offset="0.43" stop-color="#FAF8FF"/>
+      <stop offset="0.83" stop-color="#FBFBFF"/>
+      <stop offset="1" stop-color="#CECCFA"/>
+    </linearGradient>
+    <linearGradient id="fold-face" gradientUnits="userSpaceOnUse" x1="470" y1="372" x2="580" y2="648">
+      <stop stop-color="#F5F2FF"/>
+      <stop offset="0.28" stop-color="#E0DCFF"/>
+      <stop offset="0.62" stop-color="#ACB2F8"/>
+      <stop offset="1" stop-color="#7E8DE9"/>
+    </linearGradient>
+    <linearGradient id="right-face" gradientUnits="userSpaceOnUse" x1="588" y1="659" x2="789" y2="296">
+      <stop stop-color="#ADB7FF"/>
+      <stop offset="0.41" stop-color="#EAEDFF"/>
+      <stop offset="0.75" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E9EEFF"/>
+    </linearGradient>
+    <linearGradient id="edge-light" x1="0.16" y1="1" x2="0.85" y2="0">
+      <stop stop-color="#E8E4FF" stop-opacity="0.08"/>
+      <stop offset="0.44" stop-color="#FFFFFF" stop-opacity="0.68"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.89"/>
+    </linearGradient>
+    <path id="turn" d="M 377 327 C 420 291 478 306 512 359 C 549 418 552 509 606 550 L 523 684 C 476 665 448 594 425 520 C 412 479 423 453 452 447 Z"/>
+    <path id="rise" d="M 216 583 Q 211 563 232 562 C 278 557 308 515 336 427 C 350 382 359 343 377 327 C 404 346 431 395 452 447 C 424 448 409 481 384 548 C 355 623 313 668 252 679 Q 234 681 230 662 Z"/>
+    <path id="release" d="M 523 684 C 560 694 604 679 638 646 C 679 606 706 540 731 482 C 755 423 781 404 811 405 Q 828 404 823 387 L 802 292 Q 797 273 780 278 C 714 286 682 331 648 413 C 624 470 611 519 580 561 C 552 601 539 651 523 684 Z"/>
+    <g id="ribbon-silhouette">
+      <use href="#turn"/><use href="#rise"/><use href="#release"/>
+    </g>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#violet-blue)"/>
+  <g id="ribbon" transform="translate(512 529) scale(1.015) translate(-520 -487)">
+    <g id="ribbon-shadow" fill="#272480">
+      <use href="#ribbon-silhouette" transform="translate(0 8)" opacity="0.075"/>
+      <use href="#ribbon-silhouette" transform="translate(0 12)" opacity="0.059"/>
+      <use href="#ribbon-silhouette" transform="translate(0 16)" opacity="0.044"/>
+      <use href="#ribbon-silhouette" transform="translate(0 20)" opacity="0.029"/>
+      <use href="#ribbon-silhouette" transform="translate(0 24)" opacity="0.017"/>
+    </g>
+    <use href="#turn" fill="url(#fold-face)"/>
+    <use href="#rise" fill="url(#left-face)"/>
+    <use href="#release" fill="url(#right-face)"/>
+    <path d="M 232 562 C 278 557 308 515 336 427 C 350 382 359 343 377 327 C 420 291 478 306 512 359" fill="none" stroke="url(#edge-light)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 580 561 C 611 519 624 470 648 413 C 682 331 714 286 780 278" fill="none" stroke="url(#edge-light)" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

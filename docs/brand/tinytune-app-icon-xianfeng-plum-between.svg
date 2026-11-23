@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tinytune · 弦风 · 留白落梅</title>
+  <desc id="desc">暖燕麦底 × 松墨绿乐器，琵琶与竹笛交叠。一朵低饱和梅红落在琴头和笛口之间。</desc>
+  <defs>
+    <linearGradient id="pine-ink" x1="0.10" y1="0.05" x2="0.91" y2="0.92">
+      <stop stop-color="#F2ECD9"/>
+      <stop offset="1" stop-color="#C9CEAE"/>
+    </linearGradient>
+    <linearGradient id="bamboo" gradientUnits="userSpaceOnUse" x1="-43" y1="0" x2="44" y2="12">
+      <stop stop-color="#58694C"/>
+      <stop offset="0.35" stop-color="#82936B"/>
+      <stop offset="0.72" stop-color="#70815E"/>
+      <stop offset="1" stop-color="#536747"/>
+    </linearGradient>
+    <linearGradient id="bamboo-end" gradientUnits="userSpaceOnUse" x1="-43" y1="0" x2="45" y2="12">
+      <stop stop-color="#778163"/>
+      <stop offset="0.42" stop-color="#AAB28B"/>
+      <stop offset="1" stop-color="#899672"/>
+    </linearGradient>
+    <linearGradient id="enamel" gradientUnits="userSpaceOnUse" x1="-100" y1="-296" x2="128" y2="224">
+      <stop stop-color="#30493E"/>
+      <stop offset="0.43" stop-color="#3C5547"/>
+      <stop offset="0.63" stop-color="#354F41"/>
+      <stop offset="1" stop-color="#233A34"/>
+    </linearGradient>
+    <linearGradient id="bevel" gradientUnits="userSpaceOnUse" x1="-72" y1="-246" x2="153" y2="221">
+      <stop stop-color="#526451"/>
+      <stop offset="0.56" stop-color="#354E41"/>
+      <stop offset="1" stop-color="#233630"/>
+    </linearGradient>
+    <linearGradient id="soundboard-glint" gradientUnits="userSpaceOnUse" x1="-105" y1="38" x2="139" y2="204">
+      <stop stop-color="#DBE5C6" stop-opacity="0"/>
+      <stop offset="0.60" stop-color="#779078" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#21302A" stop-opacity="0.68"/>
+    </linearGradient>
+    <linearGradient id="strings" gradientUnits="userSpaceOnUse" x1="0" y1="-209" x2="0" y2="170">
+      <stop stop-color="#D1DEB2"/>
+      <stop offset="1" stop-color="#ADCAAB"/>
+    </linearGradient>
+    <path id="tube" d="M-27 -15 H27 Q43 -15 43 1 V407 Q43 420 30 420 H-30 Q-43 420 -43 407 V1 Q-43 -15 -27 -15Z"/>
+    <path id="pipa" d="
+      M-61 -308 C-40 -311 -12 -301 9 -283 C24 -270 30 -253 30 -231
+      L32 -125 C33 -99 47 -74 72 -51 C119 -8 154 46 157 105
+      C162 183 110 236 23 245 C-69 254 -143 222 -158 155
+      C-174 91 -146 29 -99 -26 C-67 -64 -35 -87 -34 -128 L-32 -231
+      C-31 -244 -42 -252 -60 -255 C-74 -257 -83 -266 -82 -279
+      L-81 -287 Q-79 -304 -61 -308Z"/>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#pine-ink)"/>
+  <g id="mark" transform="translate(512 511) scale(1.085) translate(-520 -517)">
+    <g id="bamboo-flute" transform="translate(746 280) rotate(33)">
+      <use href="#tube" transform="translate(8 9)" fill="#344738" opacity="0.2"/>
+      <use href="#tube" fill="url(#bamboo)"/>
+      <path d="M-27 -15 H27 Q43 -15 43 1 V17 H-43 V1 Q-43 -15 -27 -15Z" fill="url(#bamboo-end)"/>
+      <path d="M-42 17 H42" stroke="#465841" stroke-width="6"/>
+      <ellipse cx="0" cy="-7" rx="23" ry="4" fill="#BBC8A0" opacity="0.88"/>
+      <g fill="#D1D9AF">
+        <circle cx="-1" cy="66" r="14"/>
+        <circle cx="-1" cy="130" r="14"/>
+      </g>
+    </g>
+    <g id="pipa-instrument" transform="translate(446 532) rotate(-24)">
+      <use href="#pipa" transform="translate(9 17)" fill="#293832" opacity="0.24"/>
+      <g id="tuning-pegs" fill="url(#bevel)">
+        <path d="M18 -244 H55 Q65 -244 65 -234 V-229 Q65 -219 55 -219 H18Z"/>
+        <path d="M18 -197 H49 Q59 -197 59 -187 V-182 Q59 -172 49 -172 H18Z"/>
+        <path d="M-51 -222 H-23 V-199 H-51 Q-61 -199 -61 -209 V-212 Q-61 -222 -51 -222Z"/>
+        <path d="M-47 -177 H-22 V-155 H-47 Q-57 -155 -57 -165 V-167 Q-57 -177 -47 -177Z"/>
+      </g>
+      <use href="#pipa" transform="translate(10 10)" fill="url(#bevel)"/>
+      <use href="#pipa" fill="url(#enamel)"/>
+      <path d="M76 -47 C99 16 89 90 41 151 C12 188 -25 218 -72 232
+        C-46 243 -13 249 23 245 C110 236 162 183 157 105 C154 48 120 -7 76 -47Z" fill="url(#soundboard-glint)"/>
+      <path d="M-69 -282 Q-51 -297 -22 -281 C-3 -270 5 -257 6 -243" fill="none" stroke="#B6C39A" stroke-width="5" stroke-linecap="round" opacity="0.78"/>
+      <path d="M-12 -211 L-19 149 M12 -211 L19 149" fill="none" stroke="url(#strings)" stroke-width="12" stroke-linecap="round"/>
+      <g fill="none" stroke-linecap="round">
+        <path d="M-20 -159 H20 M-22 -127 H22 M-27 -95 H27" stroke="#9DB596" stroke-width="9"/>
+        <path d="M-45 153 Q0 159 45 153" stroke="#C2CFAC" stroke-width="20"/>
+      </g>
+    </g>
+  </g>
+  <g id="blossom-placement" transform="translate(527 350) scale(0.91)">
+    <path id="plum-blossom" d="M -17.835 -16.059 C -31.253 -21.982 -36.120 -35.261 -27.232 -46.351 C -19.114 -56.255 -3.463 -59.582 8.189 -52.858 C 20.050 -45.155 18.840 -31.608 9.762 -21.925 C 11.249 -36.517 22.373 -45.249 35.667 -40.222 C 47.595 -35.562 55.595 -21.706 52.801 -8.546 C 49.141 5.115 35.883 8.151 23.869 2.509 C 38.205 -0.586 49.948 7.295 49.276 21.492 C 48.529 34.277 37.823 46.167 24.444 47.576 C 10.321 48.316 3.337 36.645 4.990 23.476 C 12.364 36.154 8.496 49.758 -5.213 53.505 C -17.603 56.746 -32.219 50.239 -37.694 37.949 C -42.762 24.746 -33.821 14.497 -20.785 12.000 C -30.564 22.931 -44.697 23.456 -52.498 11.576 C -59.408 0.794 -57.736 -15.118 -47.740 -24.122 C -36.750 -33.022 -24.239 -27.685 -17.835 -16.059 Z M 8 0 A 8 8 0 1 0 -8 0 A 8 8 0 1 0 8 0 Z" fill-rule="evenodd" fill="#A36558"/>
+  </g>
+</svg>

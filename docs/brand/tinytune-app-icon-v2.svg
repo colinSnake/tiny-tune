@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tinytune — Needle Drop</title>
+  <desc id="desc">A tonearm touches an asymmetric audio groove cut into an indigo record, on a warm ivory tile.</desc>
+  <defs>
+    <linearGradient id="ivory" x1="0" y1="0" x2="0.75" y2="1">
+      <stop stop-color="#FFFAEF"/>
+      <stop offset="1" stop-color="#F4E6D0"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FDF5E8"/>
+      <stop offset="1" stop-color="#D6BEA1"/>
+    </linearGradient>
+    <linearGradient id="indigo" x1="0.16" y1="0" x2="0.86" y2="1">
+      <stop stop-color="#7567D8"/>
+      <stop offset="0.54" stop-color="#5345B5"/>
+      <stop offset="1" stop-color="#3B318C"/>
+    </linearGradient>
+    <linearGradient id="groove-ink" x1="0" y1="0.18" x2="0.96" y2="0.68">
+      <stop stop-color="#FFF4DB"/>
+      <stop offset="1" stop-color="#FFE1AF"/>
+    </linearGradient>
+  </defs>
+
+  <g id="tile-background">
+    <rect width="1024" height="1024" rx="228" fill="url(#ivory)"/>
+    <rect x="2" y="2" width="1020" height="1020" rx="226" fill="none" stroke="url(#edge)" stroke-width="4"/>
+  </g>
+
+  <g id="brand-mark" transform="translate(526 500) scale(1.035) translate(-512 -512)">
+    <g id="record">
+      <circle cx="452" cy="550" r="275" fill="url(#indigo)"/>
+      <path id="groove" d="M 518 534 Q 498 577 469 570 Q 447 565 431 533 L 394 464 Q 381 440 362 458 C 310 507 320 606 384 648 C 444 687 526 682 581 642 C 642 598 636 535 657 501" fill="none" stroke="url(#groove-ink)" stroke-width="43" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="tonearm">
+      <path d="M 768 276 V 354 Q 768 391 742 416 L 697 460" fill="none" stroke="#2B235E" stroke-width="43" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M 724 436 L 689 470" fill="none" stroke="#2B235E" stroke-width="62" stroke-linecap="round"/>
+      <path id="stylus-tip" d="M 686 472 L 657 501" fill="none" stroke="#F6B965" stroke-width="29" stroke-linecap="round"/>
+      <rect x="720" y="224" width="96" height="96" rx="30" fill="#2B235E"/>
+      <rect x="749" y="253" width="38" height="38" rx="12" fill="#DECEF9"/>
+    </g>
+  </g>
+</svg>

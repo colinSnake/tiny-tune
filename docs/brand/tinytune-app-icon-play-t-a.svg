@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tinytune — Play T / Letter-first</title>
+  <desc id="desc">A white lowercase t whose right crossbar becomes a rounded play arrow. The mark sits on a violet-to-blue tile.</desc>
+  <defs>
+    <linearGradient id="violet-blue" x1="0.10" y1="0.05" x2="0.91" y2="0.92">
+      <stop stop-color="#704FE8"/>
+      <stop offset="1" stop-color="#3C62EB"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#violet-blue)"/>
+  <path id="play-t" fill="#FAF9FF" transform="translate(16 14)"
+        d="M 403 274
+          Q 403 235 442 235 H 474 Q 513 235 513 274 V 371 H 606 V 334
+          Q 606 306 630 321 L 773 409 Q 797 424 773 439 L 630 527
+          Q 606 542 606 514 V 477 H 513 V 609
+          Q 513 669 575 669 H 602 Q 644 669 644 711
+          Q 644 753 602 753 H 560 C 465 753 403 703 403 613 V 477 H 293
+          C 264 477 241 453 241 424 C 241 395 264 371 293 371 H 403 Z"/>
+</svg>

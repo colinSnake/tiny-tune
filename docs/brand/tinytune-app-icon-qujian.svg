@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">曲笺 · Tinytune</title>
+  <desc id="desc">An ivory 曲 character drawn as a contemporary seal mark, with six open counters and staggered uprights, on Tinytune’s violet-to-blue tile.</desc>
+  <defs>
+    <linearGradient id="violet-blue" x1="0.10" y1="0.05" x2="0.91" y2="0.92">
+      <stop stop-color="#704FE8"/>
+      <stop offset="1" stop-color="#3C62EB"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0.22" y1="0.04" x2="0.78" y2="0.96">
+      <stop stop-color="#FFFCF4"/>
+      <stop offset="0.62" stop-color="#FDF9FD"/>
+      <stop offset="1" stop-color="#E7E6FF"/>
+    </linearGradient>
+    <path id="qu" fill-rule="evenodd" d="
+      M 251 410 Q 236 423 236 446 V 719 Q 236 743 257 755
+      Q 272 765 294 765 H 703 Q 726 765 744 749 L 775 721 Q 788 709 788 690
+      V 405 Q 788 371 753 371 H 623 V 269 Q 623 247 602 252 L 569 261
+      Q 550 267 550 288 V 371 H 463 V 227 Q 463 205 441 210 L 407 219
+      Q 390 224 390 243 V 371 H 316 Q 296 371 281 384 Z
+      M 308 452 Q 308 443 316 443 H 390 V 555 L 308 572 Z
+      M 463 443 H 550 V 522 L 463 540 Z
+      M 623 443 H 707 Q 716 443 716 452 V 487 L 623 507 Z
+      M 308 630 L 390 613 V 693 H 316 Q 308 693 308 685 Z
+      M 463 598 L 550 580 V 693 H 463 Z
+      M 623 565 L 716 545 V 672 L 694 693 H 623 Z"/>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#violet-blue)"/>
+  <g id="seal-wordmark" transform="translate(0 23)">
+    <use href="#qu" fill="#252382" opacity="0.16" transform="translate(0 11)"/>
+    <use href="#qu" fill="url(#paper)"/>
+  </g>
+</svg>

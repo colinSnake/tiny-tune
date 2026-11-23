@@ -1,0 +1,42 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "User-visible app name on all platforms; the project and built product retain the name Tinytune.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曲笺"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曲笺"
+          }
+        }
+      }
+    },
+    "CFBundleName" : {
+      "comment" : "Localized short name for macOS and any surface that falls back to the bundle name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曲笺"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曲笺"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
