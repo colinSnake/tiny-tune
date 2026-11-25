@@ -31,7 +31,13 @@ public struct NowPlayingLyricStrip: View {
     private let document: LyricsDocument
     private let window: NowPlayingLyricWindow
     private let animates: Bool
+    #if os(macOS)
+    @ScaledMetric(relativeTo: .subheadline) private var inactiveSize = 15.0
+    @ScaledMetric(relativeTo: .body) private var currentSize = 18.0
+    @ScaledMetric(relativeTo: .body) private var rowHeight = 32.0
+    #else
     @ScaledMetric(relativeTo: .body) private var rowHeight = 28.0
+    #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(document: LyricsDocument, position: Double, animates: Bool = true) {
@@ -59,7 +65,13 @@ public struct NowPlayingLyricStrip: View {
     private func line(_ index: Int) -> some View {
         let emphasized = index == window.current
         return Text(document.cues[index].lines.joined(separator: " · "))
+            #if os(macOS)
+            .font(.system(size: emphasized ? currentSize : inactiveSize,
+                          weight: emphasized ? .semibold : .regular))
+            .minimumScaleFactor(0.86)
+            #else
             .font(emphasized ? .body.weight(.semibold) : .subheadline)
+            #endif
             .foregroundStyle(emphasized ? TuneTheme.accent : TuneTheme.secondary)
             .multilineTextAlignment(.center)
             .lineLimit(1)
