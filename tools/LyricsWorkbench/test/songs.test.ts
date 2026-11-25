@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { PublishedCatalog } from '../src/published-songs';
+import { prepareSongBatch } from '../app/song-downloads';
 
 import { test, type TestContext } from 'node:test';
 import JSZip from 'jszip';
@@ -15,7 +16,7 @@ frame.set([0xff, 0xfb, 0x90, 0x64]);
 const audio = Buffer.concat(Array.from({ length: 115 }, () => frame));
 const lyrics = '[00:00.10]第一句\n[00:02.20]最后一句';
 const row = {
-  id: '42', name: '光 / 原声', artist_name: '山谷', album_name: '夜色', duration: 3,
+  id: '42', name: '光 / 原声', artist_name: '山谷', album_id: '19', album_name: '夜色', duration: 3,
   audio: 'https://prod-1.storage.jamendo.com/?trackid=42&format=mp31',
   audiodownload: 'https://prod-1.storage.jamendo.com/download/track/42/mp32/',
   audiodownload_allowed: true, lyrics, license_ccurl: 'http://creativecommons.org/licenses/by/3.0/',
@@ -63,6 +64,7 @@ test('搜索、试听详情、同版本歌词和完整 MP3 ZIP 都绑定曲目 I
   const search = await server.inject(`/api/songs?q=${encodeURIComponent('山谷')}`);
   assert.equal(search.statusCode, 200, search.body);
   assert.equal(search.json().tracks[0].availability, 'ready');
+  assert.equal(search.json().tracks[0].releaseId, '19');
   assert.ok(!search.body.includes('test-key') && !search.body.includes('audiodownload'));
   const detail = await server.inject(detailPath);
   assert.equal(detail.json().track.lyrics.text, lyrics);
@@ -73,9 +75,14 @@ test('搜索、试听详情、同版本歌词和完整 MP3 ZIP 都绑定曲目 I
   assert.match(String(response.headers['content-disposition']), /attachment.*filename\*=UTF-8/);
   const zip = await JSZip.loadAsync(response.rawPayload, { checkCRC32: true });
   const mp3 = Object.keys(zip.files).find(name => name.endsWith('.mp3'))!;
+  assert.equal(mp3, '山谷/夜色/山谷 - 光 原声.mp3');
   assert.deepEqual(await zip.file(mp3)!.async('nodebuffer'), audio);
   assert.equal(await zip.file(mp3.replace(/mp3$/, 'lrc'))!.async('string'), lyrics + '\n');
   const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+  assert.equal(manifest.version, 2);
+  assert.equal(manifest.releaseId, '19');
+  assert.equal(manifest.audio.file, mp3);
+  assert.equal(manifest.lyrics.file, mp3.replace(/mp3$/, 'lrc'));
   assert.equal(manifest.source.id, '42');
   assert.equal(manifest.lyrics.kind, 'timed');
   assert.deepEqual(state.ids, ['42', '42']);
@@ -159,13 +166,13 @@ test('作者授权目录无需 Jamendo 凭据，可下载整曲；不接受静�
   const lyricText = '<lyrics>我自己写的测试歌词\n下一句</lyrics>';
   let currentLyrics = lyricText;
   let currentAudio = audio;
-  const catalog = new PublishedCatalog({
+  const catalog = new PublishedCatalog([{
     id: '123', title: '自制原声', artist: '测试作者', album: '自制专辑', duration: 3,
     sourceUrl: 'https://www.jonathancoulton.com/', licenseUrl: 'https://creativecommons.org/licenses/by-nc/3.0/',
     rightsUrl: 'https://www.jonathancoulton.com/faq/', lyricSourceUrl: 'https://joco.wiki.gg/wiki/Test',
     audioUrl: 'https://www.jonathancoulton.com/test.mp3', lyricsUrl: 'https://joco.wiki.gg/api.php?revids=1',
     audioHash: hash(audio), lyricHash: hash(lyricText),
-  }, async input => String(input).includes('revids=1') ? Response.json({ query: { pages: [{ revisions: [{ slots: { main: { content: currentLyrics } } }] }] } }) :
+  }], async input => String(input).includes('revids=1') ? Response.json({ query: { pages: [{ revisions: [{ slots: { main: { content: currentLyrics } } }] }] } }) :
     new Response(new Uint8Array(currentAudio), { headers: { 'content-type': 'audio/mpeg' } }));
   const server = await createServer({ songs: new JamendoCatalog({}), publishedSongs: catalog });
   t.after(() => server.close());
@@ -189,6 +196,68 @@ test('作者授权目录无需 Jamendo 凭据，可下载整曲；不接受静�
   currentAudio = Buffer.from(audio);
   currentAudio[20] ^= 1;
   assert.equal((await server.inject({ method: 'POST', url })).statusCode, 502);
+});
+
+
+test('作者曲库按发行 ID 关联多个版本，简繁别名可搜，不跨版本打包歌词', async t => {
+  const expected = Buffer.from('\uFEFF試唱原聲\r\n  第二句\r\n');
+  const alternative = Buffer.from('混音版第一句\n');
+  const license = 'https://creativecommons.org/licenses/by-nc-sa/2.0/tw/';
+  const url = 'https://example.com/album';
+  const initial = { id: '321', title: '測試曲', artist: '測試歌手', album: '同一專輯', releaseId: 'test-release', duration: 3,
+    aliases: { titles: ['测试曲'], artists: ['测试歌手'] }, sourceUrl: url, lyricSourceUrl: `${url}/original.txt`,
+    rightsUrl: url, licenseUrl: license, audioUrl: `${url}/original.mp3`, audioHash: hash(audio),
+    lyricsFormat: 'text' as const, lyricsUrl: `${url}/original.txt`, lyricHash: hash(expected) };
+  let wrong = false;
+  const requested: string[] = [];
+  const catalog = new PublishedCatalog([initial, { ...initial, id: '322', title: '測試曲 Remix',
+    aliases: { titles: ['测试曲 Remix'], artists: ['测试歌手'] }, lyricSourceUrl: `${url}/remix.txt`,
+    lyricsUrl: `${url}/remix.txt`, lyricHash: hash(alternative), audioUrl: `${url}/remix.mp3` }], async input => {
+    const name = String(input).slice(url.length + 1);
+    requested.push(name);
+    if (name.endsWith('.mp3')) return new Response(new Uint8Array(audio), { headers: { 'content-type': 'audio/mpeg' } });
+    return new Response(new Uint8Array(name === 'original.txt' || wrong ? expected : alternative), {
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    });
+  });
+  const server = await createServer({ publishedSongs: catalog });
+  t.after(() => server.close());
+  const query = async (q: string) => (await server.inject(`/api/songs?source=artist&q=${encodeURIComponent(q)}`)).json().tracks;
+  assert.deepEqual((await query('测试歌手 测试曲')).map((row: { id: string }) => row.id), ['321', '322']);
+  assert.deepEqual((await query('测试曲 Remix 测试歌手')).map((row: { id: string }) => row.id), ['322']);
+  const download = async (id: string, lyricScript?: string) => server.inject({ method: 'POST', url: `/api/songs/artist/${id}/download`,
+    ...(lyricScript ? { payload: { lyricScript } } : {}) });
+  const result = await download('321');
+  assert.equal(result.statusCode, 200, result.body);
+  const zip = await JSZip.loadAsync(result.rawPayload);
+  const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+  assert.equal(manifest.source.license, license);
+  assert.equal(manifest.lyrics.source, `${url}/original.txt`);
+  assert.equal(manifest.lyrics.kind, 'plain');
+  assert.equal(await zip.file(manifest.lyrics.file)!.async('string'), '试唱原声\n  第二句\n');
+  assert.deepEqual(await zip.file(manifest.audio.file)!.async('nodebuffer'), audio);
+  assert.deepEqual(requested, ['original.txt', 'original.mp3']);
+  const original = await download('321', 'original');
+  assert.equal(original.statusCode, 200);
+  assert.equal(await (await JSZip.loadAsync(original.rawPayload)).file(manifest.lyrics.file)!.async('string'), '試唱原聲\n  第二句\n');
+  assert.equal((await download('322')).statusCode, 200);
+  assert.deepEqual(requested.slice(-2), ['remix.txt', 'remix.mp3']);
+  const batch = await prepareSongBatch(await query('测试歌手'), new AbortController().signal, () => {}, async (path, init) => {
+    const response = await server.inject({ method: 'POST', url: path, headers: init.headers, payload: init.body });
+    assert.equal(response.statusCode, 200);
+    return new Response(new Uint8Array(response.rawPayload), { headers: { 'content-type': 'application/zip' } });
+  }, undefined, 'original');
+  assert.equal(batch.completed.length, 2, batch.error?.message);
+  const archive = await JSZip.loadAsync(await batch.archive!.arrayBuffer(), { checkCRC32: true });
+  const batchManifest = JSON.parse(await archive.file('manifest.json')!.async('string'));
+  assert.deepEqual(batchManifest.tracks.map((entry: { audio: { file: string } }) => entry.audio.file),
+    ['測試歌手/同一專輯/測試歌手 - 測試曲.mp3', '測試歌手/同一專輯/測試歌手 - 測試曲 Remix.mp3']);
+  assert.equal(await archive.file(batchManifest.tracks[0].lyrics.file)!.async('string'), '試唱原聲\n  第二句\n');
+  assert.equal(await archive.file(batchManifest.tracks[1].lyrics.file)!.async('string'), '混音版第一句\n');
+  assert.equal(batchManifest.tracks[1].source.license, license);
+  wrong = true;
+  assert.equal((await download('322')).statusCode, 409);
+  assert.equal(requested.at(-1), 'remix.txt');
 });
 
 

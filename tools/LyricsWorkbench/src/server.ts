@@ -1,19 +1,33 @@
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import type { MusicSources } from './providers';
 import { isMbid, MusicSources as DefaultMusicSources, UpstreamError } from './providers';
-import type { Artist, Track } from './types';
+import type { Artist, LyricResult, Track } from './types';
+import { LocalMusicLibrary } from './local-library';
+import { localBatchLimit, localTrackId, type LocalLyricChoice } from './local-library-types';
 import { isSongId, JamendoCatalog, songSourceError, songZip, type SongCatalog } from './songs';
 import { PublishedCatalog } from './published-songs';
+import { BilibiliCatalog } from './bilibili-songs';
+import { BilibiliDiscovery, isBilibiliVideoId } from './bilibili-discovery';
+import { lrcFilename, lyricText } from './export';
+import { parseLyricScript } from './lyric-script';
+import { saveLyricsLocally, saveSongLocally, type SongLocalSaveResult } from './song-local-save';
 import { LyricsCatalog } from './lyrics-catalog';
-import { rankSongs, songProviders, songProviderLabels, type SongProvider } from './song-types';
+import { matchLyrics, normalize } from './match';
+import { chooseLyrics } from './workbench';
+import { matchVideoLyrics, videoLyricQuery } from './video-lyrics';
+import { normalizeSearch, rankSongs, songProviders, songProviderLabels, type SongDetail, type SongProvider } from './song-types';
 
 type Sources = Pick<MusicSources, 'artists' | 'recordings' | 'collect'>;
 type ServerOptions = {
-  sources?: Sources; songs?: SongCatalog; publishedSongs?: SongCatalog | false; lyricSongs?: SongCatalog | false; songDownloadTimeout?: number;
+  sources?: Sources; songs?: SongCatalog; publishedSongs?: SongCatalog | false; lyricSongs?: SongCatalog | false;
+  bilibiliSongs?: SongCatalog | false; bilibiliVideos?: BilibiliDiscovery | false; songDownloadTimeout?: number;
   developmentRoot?: string; staticRoot?: string; logger?: boolean;
+  localFontPath?: string;
+  localLibraryRoot?: string; localLyricSearch?: MusicSources['searchLyrics'];
 };
 
 function isTrack(data: unknown): data is Track {
@@ -54,11 +68,61 @@ function requestSignal(request: FastifyRequest, reply: FastifyReply) {
   };
 }
 
+// The filesystem workflow is available only on the workbench's loopback origin.
+// Checking the literal Host also prevents another hostname resolving to loopback.
+function localOrigin(request: FastifyRequest) {
+  const host = request.headers.host;
+  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.ip) ||
+      !host || !/^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/.test(host)) return false;
+  const { origin, 'sec-fetch-site': site } = request.headers;
+  if (site && site !== 'same-origin' && site !== 'none') return false;
+  if (origin || request.method === 'POST') return origin === `${request.protocol}://${host}`;
+  return true;
+}
+
+function localChoices(body: unknown): LocalLyricChoice[] | undefined {
+  const tracks = (body as { tracks?: unknown } | null)?.tracks;
+  if (!Array.isArray(tracks) || !tracks.length || tracks.length > localBatchLimit) return;
+  const ids = new Set<string>();
+  for (const track of tracks) {
+    if (!track || typeof track.id !== 'string' || !localTrackId.test(track.id) || ids.has(track.id) ||
+      !Number.isSafeInteger(track.candidateId) || track.candidateId <= 0 || typeof track.confirmed !== 'boolean' ||
+      track.mode !== undefined && track.mode !== 'original' && track.mode !== 'plain' ||
+      track.upgradePlain !== undefined && (typeof track.upgradePlain !== 'boolean' || track.upgradePlain && tracks.length !== 1)) return;
+    ids.add(track.id);
+  }
+  return tracks;
+}
+
+function audioRange(value: string, size: number): { start: number; end: number } | undefined {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(value);
+  if (!m || !m[1] && !m[2]) return;
+  if (!m[1]) {
+    const suffix = Number(m[2]);
+    return suffix > 0 && Number.isSafeInteger(suffix) ? { start: Math.max(0, size - suffix), end: size - 1 } : undefined;
+  }
+  const start = Number(m[1]);
+  const end = m[2] ? Number(m[2]) : size - 1;
+  if (start < size && end >= start && Number.isSafeInteger(end)) return { start, end: Math.min(size - 1, end) };
+}
+
 export async function createServer(options: ServerOptions = {}) {
   const app = Fastify({ logger: options.logger ?? false });
   const defaultSources = new DefaultMusicSources();
   const sources = options.sources ?? defaultSources;
   const artistSearches = new Map<string, { artists: Artist[]; expiresAt: number }>();
+
+  if (options.localFontPath) {
+    try {
+      const font = await readFile(options.localFontPath);
+      app.get('/local-assets/ruantang.ttf', async (_request, reply) => reply
+        .type('font/ttf')
+        .header('Cache-Control', 'private, max-age=31536000, immutable')
+        .send(font));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
 
   app.get('/api/catalog', async (request, reply) => {
     const params = new URL(request.url, 'http://127.0.0.1').searchParams;
@@ -109,6 +173,82 @@ export async function createServer(options: ServerOptions = {}) {
     }
   });
 
+  const local = options.localLibraryRoot ? new LocalMusicLibrary(options.localLibraryRoot,
+    options.localLyricSearch ?? ((query, signal) => defaultSources.searchLyrics(query, signal, 100))) : undefined;
+  const localHeaders = (request: FastifyRequest, reply: FastifyReply) => {
+    reply.header('Cache-Control', 'no-store').header('Cross-Origin-Resource-Policy', 'same-origin');
+    return localOrigin(request);
+  };
+  app.get<{ Querystring: { q?: string | string[] } }>('/api/local-library', async (request, reply) => {
+    if (!localHeaders(request, reply)) return reply.code(403).send();
+    if (!local) return { enabled: false, tracks: [] };
+    const params = new URL(request.url, 'http://127.0.0.1').searchParams;
+    const q = params.getAll('q').map(value => value.trim());
+    if (!q.length) return { enabled: true, root: local.root, tracks: [] };
+    if (q.length > 12 || q.some(value => !value || value.length > 120)) return badInput(reply, '歌名或歌手名称无效。');
+    try { return await local.search(q); }
+    catch { return reply.code(503).send({ error: '本地曲库暂不可读，请检查 Web 服务的目录访问权限。' }); }
+  });
+  app.post<{ Params: { id: string } }>('/api/local-library/:id/lyrics', { bodyLimit: 1024 }, async (request, reply) => {
+    if (!localHeaders(request, reply)) return reply.code(403).send();
+    if (!local || !localTrackId.test(request.params.id)) return reply.code(404).send({ error: '找不到本地录音。' });
+    const context = requestSignal(request, reply);
+    try {
+      return await local.lookup(request.params.id, context.signal) ?? reply.code(404).send({ error: '本地音频已变化，请重新搜索歌手。' });
+    } catch (error) { return sourceError(error, context.signal, reply); }
+    finally { context.dispose(); }
+  });
+  app.get<{ Params: { id: string } }>('/api/local-library/:id/audio', async (request, reply) => {
+    if (!localHeaders(request, reply)) return reply.code(403).send();
+    const audio = local && localTrackId.test(request.params.id) ? await local.audio(request.params.id).catch(() => undefined) : undefined;
+    if (!audio) return reply.code(404).send({ error: '找不到本地音频，请重新搜索歌手。' });
+    const { file, size, mime } = audio;
+    const header = request.headers.range;
+    const range = header ? audioRange(header, size) : undefined;
+    if (header && !range) {
+      await file.close();
+      return reply.header('Content-Range', `bytes */${size}`).code(416).send();
+    }
+    reply.type(mime).header('Accept-Ranges', 'bytes').header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Length', range ? range.end - range.start + 1 : size);
+    if (range) reply.code(206).header('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+    if (request.method === 'HEAD') { await file.close(); return reply.send(); }
+    return reply.send(file.createReadStream(range));
+  });
+  app.post('/api/local-library/save', { bodyLimit: 12_000 }, async (request, reply) => {
+    if (!localHeaders(request, reply)) return reply.code(403).send();
+    if (!local) return reply.code(404).send({ error: '尚未配置本地曲库。' });
+    const choices = localChoices(request.body);
+    if (!choices) return badInput(reply, `请选择 1–${localBatchLimit} 首已核对的本地录音。`);
+    const lyricScript = parseLyricScript((request.body as { lyricScript?: unknown }).lyricScript);
+    if (!lyricScript) return badInput(reply, '请选择简体中文或保留原文。');
+    try { return { results: await local.save(choices, lyricScript) }; }
+    catch { return reply.code(503).send({ error: '暂时无法访问本地曲库，请重新搜索后重试。' }); }
+  });
+
+  app.post('/api/local-library/lyrics-only', { bodyLimit: 12_000 }, async (request, reply) => {
+    if (!localHeaders(request, reply)) return reply.code(403).send();
+    if (!local) return reply.code(404).send({ error: '尚未配置本地曲库。' });
+    const body = request.body as { track?: unknown; candidateId?: number; lyricScript?: unknown } | null;
+    if (!isTrack(body?.track) || (body.candidateId !== undefined && (!Number.isSafeInteger(body.candidateId) || body.candidateId <= 0))) {
+      return badInput(reply, '请选择有效的歌曲和歌词版本。');
+    }
+    const { track, candidateId } = body;
+    const lyricScript = parseLyricScript(body.lyricScript);
+    if (!lyricScript) return badInput(reply, '请选择简体中文或保留原文。');
+    return withSongRequest(request, reply, 25_000, async signal => {
+      const { result } = await sources.collect(track, signal);
+      const chosen = (result.status !== 'review' || candidateId !== undefined) && chooseLyrics(result, candidateId, track);
+      const text = chosen && lyricText(chosen.result);
+      if (!chosen || !text || candidateId !== undefined && chosen.candidate.id !== candidateId ||
+          normalize(chosen.candidate.title) !== normalize(track.title) || normalize(chosen.candidate.artist) !== normalize(track.artist)) {
+        return reply.code(409).send({ error: '没有核对到可保存的歌词，请重新选择歌词版本。' });
+      }
+      signal.throwIfAborted();
+      return saveLyricsLocally(local.root, track, text, result.status === 'review' ? `歌词 ${chosen.candidate.id}` : undefined, lyricScript);
+    });
+  });
+
   const songs = options.songs ?? new JamendoCatalog({
     clientId: process.env.JAMENDO_CLIENT_ID,
     allowBundles: process.env.JAMENDO_BUNDLE_AUTHORIZED === '1',
@@ -118,7 +258,13 @@ export async function createServer(options: ServerOptions = {}) {
   // Explicit fixtures must opt into independent sources; the normal server shares LRCLIB's queue with local matching.
   const lyricSongs = options.lyricSongs ?? (options.songs || options.publishedSongs !== undefined || options.sources
     ? false : new LyricsCatalog(defaultSources));
-  const catalogs: Record<SongProvider, SongCatalog | false> = { artist: publishedSongs, jamendo: songs, lrclib: lyricSongs };
+  const bilibiliSongs = options.bilibiliSongs ?? (options.songs || options.publishedSongs !== undefined || options.lyricSongs !== undefined || options.sources
+    ? false : new BilibiliCatalog());
+  const bilibiliVideos = options.bilibiliVideos ?? (options.songs || options.publishedSongs !== undefined || options.lyricSongs !== undefined ||
+    options.bilibiliSongs !== undefined || options.sources ? false : new BilibiliDiscovery({ approved: process.env.BILIBILI_APPROVED_AUDIO_SHA256 }));
+  const catalogs: Record<SongProvider, SongCatalog | false> = { artist: publishedSongs, bilibili: bilibiliSongs,
+    'bilibili-video': bilibiliVideos, jamendo: songs, lrclib: lyricSongs };
+  const validId = (provider: string, id: string) => provider === 'bilibili-video' ? isBilibiliVideoId(id) : isSongId(id);
   const getSongCatalog = (value: string) => {
     const provider = songProviders.find(candidate => candidate === value);
     return provider ? catalogs[provider] : false;
@@ -147,9 +293,27 @@ export async function createServer(options: ServerOptions = {}) {
     }
   }
 
-  app.get('/api/songs/status', async (_request, reply) => reply.header('Cache-Control', 'no-store').send({
-    ...songs.status(), featured: !!publishedSongs, sources: searchSources(),
-  }));
+  async function songLyrics(track: SongDetail, signal: AbortSignal): Promise<{ track: Track; result: LyricResult }> {
+    const video = track.provider === 'bilibili-video';
+    const { title, artist } = video && track.lyricIdentity ? track.lyricIdentity : track;
+    const recording: Track = { id: `${track.provider}:${track.id}`, title, artist,
+      albums: !video && track.album ? [track.album] : [], duration: track.duration || null };
+    if (!title || !artist) return { track: recording, result: { status: 'missing' } };
+    const find = options.localLyricSearch ?? ((query: string, signal?: AbortSignal) => defaultSources.searchLyrics(query, signal, 100));
+    const candidates = (await find(video ? videoLyricQuery(recording) : `${title} ${artist}`, signal)).slice(0, 100);
+    signal.throwIfAborted();
+    return { track: recording, result: video ? matchVideoLyrics(recording, candidates) : matchLyrics(recording, candidates) };
+  }
+
+  app.get('/api/songs/status', async (_request, reply) => {
+    const sources = searchSources();
+    return reply.header('Cache-Control', 'no-store').send({
+      configured: sources.length > 0, bundlesEnabled: sources.some(provider => {
+        const catalog = catalogs[provider];
+        return catalog && catalog.status().bundlesEnabled;
+      }), featured: !!publishedSongs, sources,
+    });
+  });
   app.get<{ Querystring: { q?: string; source?: string } }>('/api/songs', async (request, reply) => {
     const q = typeof request.query.q === 'string' ? request.query.q.trim() : '';
     if (!q || q.length > 120) return badInput(reply, '请输入歌名或歌手（最多 120 个字符）。');
@@ -179,21 +343,42 @@ export async function createServer(options: ServerOptions = {}) {
   });
   app.get<{ Params: { provider: string; id: string } }>('/api/songs/:provider/:id', async (request, reply) => {
     const { id, provider } = request.params;
-    if (!isSongId(id)) return badInput(reply, '无效的录音 ID。');
+    if (!validId(provider, id)) return badInput(reply, '无效的录音 ID。');
     const catalog = getSongCatalog(provider);
     if (!catalog) return reply.code(404).send({ error: '录音来源未启用。' });
     return withSongRequest(request, reply, 18_000, async signal => ({ track: (await catalog.detail(id, signal)).track }));
   });
-  app.post<{ Params: { provider: string; id: string } }>('/api/songs/:provider/:id/download', { bodyLimit: 1024 }, async (request, reply) => {
+  app.post<{ Params: { provider: string; id: string; mode: string } }>('/api/songs/:provider/:id/:mode', { bodyLimit: 1024 }, async (request, reply) => {
     if (request.headers.origin && request.headers.origin !== `${request.protocol}://${request.host}`) return reply.code(403).send();
-    const { id, provider } = request.params;
-    if (!isSongId(id)) return badInput(reply, '无效的录音 ID。');
+    const { id, provider, mode } = request.params;
+    if (mode !== 'download' && mode !== 'mp3' && mode !== 'save' && mode !== 'lyrics' || mode === 'mp3' && (provider !== 'bilibili-video' || !bilibiliVideos)) {
+      return reply.code(404).send({ error: '这个来源没有该下载方式。' });
+    }
+    if (mode === 'save' && (!localHeaders(request, reply) || !options.localLibraryRoot)) return reply.code(403).send({ error: '本地保存未启用或请求并非来自本机页面。' });
+    if (!validId(provider, id)) return badInput(reply, '无效的录音 ID。');
     const catalog = getSongCatalog(provider);
     if (!catalog) return reply.code(404).send({ error: '录音来源未启用。' });
-    if (provider === 'lrclib') return reply.code(409).send({ error: '该结果只有歌词，没有可下载的同版本音频。' });
+    if (mode === 'lyrics') return withSongRequest(request, reply, 25_000, async signal => {
+      const { track } = await catalog.detail(id, signal);
+      return songLyrics(track, signal);
+    });
+    const optionsBody = request.body as { lyricScript?: unknown; alternate?: unknown; candidateId?: unknown } | undefined | null;
+    const lyricScript = parseLyricScript(optionsBody?.lyricScript);
+    if (!lyricScript) return badInput(reply, '请选择简体中文或保留原文。');
+    if (provider === 'bilibili-video' && mode === 'download') return reply.code(409).send({ error: '未核对到同版本歌词，不能打包 ZIP。' });
+    if (provider === 'lrclib') {
+      if (mode !== 'save' || !local) return reply.code(409).send({ error: '该结果只有歌词，没有可下载的同版本音频。' });
+      return withSongRequest(request, reply, 25_000, async signal => {
+        const { track } = await catalog.detail(id, signal);
+        if (track.availability !== 'lyrics-only' || !track.lyrics) return reply.code(409).send({ error: '没有可保存的歌词。' });
+        signal.throwIfAborted();
+        const alternate = optionsBody?.alternate === true;
+        return saveLyricsLocally(local.root, track, track.lyrics.text, alternate ? `歌词 ${id}` : undefined, lyricScript);
+      });
+    }
     if (activeDownloads >= 2) {
       reply.header('Retry-After', '3');
-      return reply.code(429).send({ error: '正在准备其他整曲下载，请稍后再试。', retryAt: Date.now() + 3000 });
+      return reply.code(429).send({ error: '正在准备其他下载，请稍后再试。', retryAt: Date.now() + 3000 });
     }
     activeDownloads++;
     let workDone = false, responseDone = false;
@@ -207,11 +392,63 @@ export async function createServer(options: ServerOptions = {}) {
     reply.raw.once('finish', close);
     reply.raw.once('close', close);
     try {
-      return await withSongRequest(request, reply, options.songDownloadTimeout ?? 60_000, async signal => {
-        const { body, filename } = await songZip(catalog, id, signal);
+      // The curated archive can take longer to serve a complete file; keep the same
+      // byte and concurrency limits, and keep all other sources on the existing deadline.
+      const timeout = options.songDownloadTimeout ?? (provider === 'artist' ? 120_000 : provider === 'bilibili-video' && mode === 'save' ? 75_000 : 60_000);
+      return await withSongRequest(request, reply, timeout, async signal => {
+        if (mode === 'save') {
+          let track: SongDetail, download: () => Promise<Buffer>, legacyVideoTitle: string | undefined;
+          let lyricsIssue: SongLocalSaveResult['lyricsIssue'];
+          let videoSource: Awaited<ReturnType<BilibiliDiscovery['mp3Source']>> | undefined;
+          if (provider === 'bilibili-video' && bilibiliVideos) {
+            const result = videoSource = await bilibiliVideos.mp3Source(id, signal);
+            track = result.track; download = result.audio; legacyVideoTitle = result.downloadTitle;
+            try {
+              const { result: found } = await songLyrics(track, AbortSignal.any([signal, AbortSignal.timeout(12_000)]));
+              const candidate = found.status === 'plain' ? found.candidate : found.status === 'review'
+                ? found.candidates.find(candidate => candidate.id === optionsBody?.candidateId) : undefined;
+              if (candidate?.plain.trim()) track = { ...track, lyrics: { kind: 'plain', text: candidate.plain } };
+              else lyricsIssue = found.status === 'missing' ? 'missing' : found.status === 'review' ? 'review' : 'unsynced';
+            } catch {
+              signal.throwIfAborted();
+              lyricsIssue = 'unavailable';
+            }
+          } else {
+            const record = await catalog.detail(id, signal);
+            if (record.track.availability !== 'ready') return reply.code(409).send({ error: '这版录音未开放整曲与歌词下载。' });
+            track = record.track; download = () => catalog.audio(record, signal);
+          }
+          signal.throwIfAborted();
+          let existingAudio: string | undefined;
+          if (local && track.provider === 'bilibili-video' && track.artist && track.title) {
+            // Refresh paths: the user may have moved or renamed files since the last search.
+            local.invalidate();
+            const snapshot = await local.search([track.artist]);
+            const matches = snapshot.tracks.filter(candidate => normalizeSearch(candidate.artist) === normalizeSearch(track.artist) &&
+              normalizeSearch(candidate.title) === normalizeSearch(track.title) && candidate.duration !== null && Math.abs(candidate.duration - track.duration) <= 2);
+            if (matches.length > 1) return { status: 'conflict' };
+            existingAudio = matches[0]?.file;
+          }
+          const result = await saveSongLocally(options.localLibraryRoot!, track, async () => {
+            signal.throwIfAborted();
+            const audio = await download();
+            signal.throwIfAborted();
+            return audio;
+          }, legacyVideoTitle, lyricScript, existingAudio);
+          if (result.status === 'saved' || result.status === 'lyrics-added') local?.invalidate();
+          return { ...result, ...(result.audio && !result.lyrics && lyricsIssue ? { lyricsIssue } : {}),
+            ...(result.status === 'saved' && videoSource?.coverIssue ? { coverIssue: videoSource.coverIssue } : {}) };
+        }
+        let body: Buffer, filename: string;
+        if (mode === 'mp3' && bilibiliVideos) {
+          const download = await bilibiliVideos.mp3(id, signal);
+          body = download.body;
+          filename = `${lrcFilename([download.track.artist, download.track.title].filter(Boolean).join(' - ')).slice(0, -4)}.mp3`;
+        } else ({ body, filename } = await songZip(catalog, id, signal, lyricScript));
+        const extension = mode === 'mp3' ? 'mp3' : 'zip';
         const encoded = encodeURIComponent(filename).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
-        return reply.type('application/zip').header('X-Content-Type-Options', 'nosniff')
-          .header('Content-Disposition', `attachment; filename="tinytune-song.zip"; filename*=UTF-8''${encoded}`).send(body);
+        return reply.type(mode === 'mp3' ? 'audio/mpeg' : 'application/zip').header('X-Content-Type-Options', 'nosniff')
+          .header('Content-Disposition', `attachment; filename="tinytune-song.${extension}"; filename*=UTF-8''${encoded}`).send(body);
       });
     } finally { workDone = true; release(); }
   });
@@ -242,8 +479,8 @@ export async function createServer(options: ServerOptions = {}) {
       } catch {
         return next();
       }
-      // Match Fastify's decoding of unreserved URL characters before excluding API requests.
-      if (path === '/api' || path.startsWith('/api/')) return next();
+      // Match Fastify's decoding of unreserved URL characters before excluding server routes.
+      if (path === '/api' || path.startsWith('/api/') || path === '/local-assets/ruantang.ttf') return next();
       vite.middlewares(request, response, next);
     });
     // Close upgraded HMR connections before Fastify closes the HTTP listener.
@@ -262,8 +499,12 @@ export async function createServer(options: ServerOptions = {}) {
 async function main() {
   const production = process.env.NODE_ENV === 'production';
   const root = fileURLToPath(new URL('..', import.meta.url));
+  const projectRoot = resolve(root, production ? '..' : '.');
+  const workspaceRoot = resolve(projectRoot, '../..');
   const app = await createServer({
     logger: true,
+    localLibraryRoot: process.env.TINYTUNE_AUDIO_LIBRARY,
+    localFontPath: resolve(workspaceRoot, '.local/fonts/ruantang.ttf'),
     ...(production ? { staticRoot: resolve(root, 'public') } : { developmentRoot: root }),
   });
   try {

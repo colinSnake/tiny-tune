@@ -191,9 +191,9 @@ export class MusicSources {
       instrumental: row.instrumental === true, synced: string(row.syncedLyrics, 1_048_576), plain: string(row.plainLyrics, 1_048_576) };
   }
 
-  async searchLyrics(query: string, signal?: AbortSignal) {
+  async searchLyrics(query: string, signal?: AbortSignal, limit: 20 | 100 = 20) {
     const data = await this.query('lyrics', '/api/search', { q: query }, signal, 512 * 1024);
-    return rows(data, 'lyrics').slice(0, 20).map(row => this.lyricCandidate(row));
+    return rows(data, 'lyrics').slice(0, limit).map(row => this.lyricCandidate(row));
   }
 
   async lyricRecord(id: string, signal?: AbortSignal) {

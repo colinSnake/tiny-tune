@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { Artist, Track } from '../src/types';
@@ -194,4 +197,37 @@ test('temporary artist search failures are not cached as results', async (t) => 
   const query = '/api/catalog?q=test';
   assert.equal((await server.inject(query)).statusCode, 429);
   assert.deepEqual((await server.inject(query)).json(), { artists: [artist] });
+});
+
+
+test('Fastify serves the local-only interface font without exposing a filesystem path', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tinytune-local-font-'));
+  const fontPath = join(directory, 'soft-candy.ttf');
+  const bytes = Buffer.from('local-only test font');
+  await writeFile(fontPath, bytes);
+  const server = await createServer({
+    sources: testSources().sources,
+    localFontPath: fontPath,
+    developmentRoot: fileURLToPath(new URL('..', import.meta.url)),
+  });
+  try {
+    const response = await server.inject({ method: 'GET', url: '/local-assets/ruantang.ttf' });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers['content-type'] ?? '', /^font\/ttf/);
+    assert.equal(response.headers['cache-control'], 'private, max-age=31536000, immutable');
+    assert.deepEqual(response.rawPayload, bytes);
+  } finally {
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Fastify does not expose a local interface font when no private asset is configured', async () => {
+  const server = await createServer({ sources: testSources().sources });
+  try {
+    const response = await server.inject({ method: 'GET', url: '/local-assets/ruantang.ttf' });
+    assert.equal(response.statusCode, 404);
+  } finally {
+    await server.close();
+  }
 });

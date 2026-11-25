@@ -1,25 +1,7 @@
 import { readBounded } from './response-body';
-import { normalizeSearch, readCompleteAudio, sha256, SongError, songRetryAt, songUserAgent, type SongCatalog, type SongRecord } from './songs';
-import type { SongSummary } from './song-types';
-
-type PublishedTrack = Omit<SongSummary, 'provider' | 'availability'> & {
-  sourceUrl: string; rightsUrl: string; licenseUrl: string; lyricSourceUrl: string;
-  audioUrl: string; lyricsUrl: string; audioHash: string; lyricHash: string;
-};
-
-// Original recording on the songwriter's site. The FAQ grants CC BY-NC for his own music and explicitly permits sharing.
-// Pin the verified recording and transcription separately; an upstream replacement must be reviewed, not silently repackaged.
-const codeMonkey: PublishedTrack = {
-  id: '9172651910', title: 'Code Monkey', artist: 'Jonathan Coulton', album: 'Thing a Week Three', duration: 189.31,
-  sourceUrl: 'https://www.jonathancoulton.com/2006/04/14/thing-a-week-29-code-monkey/',
-  rightsUrl: 'https://www.jonathancoulton.com/faq/#can-i-use-a-song-in-my-student-filmpodcastawesome-dance-remix',
-  licenseUrl: 'https://creativecommons.org/licenses/by-nc/3.0/',
-  lyricSourceUrl: 'https://joco.wiki.gg/wiki/Code_Monkey/Lyrics?oldid=5403',
-  audioUrl: 'https://www.jonathancoulton.com/wp-content/uploads/encodes/Thing_a_Week_Three/mp3/03_Code_Monkey_mp3_118604e.mp3',
-  lyricsUrl: 'https://joco.wiki.gg/api.php?action=query&prop=revisions&revids=5403&rvprop=content&rvslots=main&format=json&formatversion=2',
-  audioHash: '3866a8aa2fba54bdc278e8b55b278d73f51c6cf0ad06bf1e9835c409c824d586',
-  lyricHash: '051a4a2d1a053fad10b9accde8934ea3f992d04e2fc136ba6d630914a252d92a',
-};
+import { isSongId, parseLyrics, readCompleteAudio, sha256, SongError, songRetryAt, songUserAgent, type SongCatalog, type SongRecord } from './songs';
+import { songMatchScore, type SongSummary } from './song-types';
+import { publishedTracks, type PublishedTrack } from './published-releases';
 
 type WikiRevision = { slots?: { main?: { content?: unknown } } };
 type WikiResponse = { query?: { pages?: { revisions?: WikiRevision[] }[] } };
@@ -32,20 +14,30 @@ function extractRevision(bytes: Buffer) {
 
 export class PublishedCatalog implements SongCatalog {
   private cooldown: SongError | undefined;
-  constructor(private readonly entry: PublishedTrack = codeMonkey, private readonly request: typeof fetch = fetch) {}
+  private readonly entries: ReadonlyMap<string, PublishedTrack>;
+  constructor(entries: readonly PublishedTrack[] = publishedTracks, private readonly request: typeof fetch = fetch) {
+    this.entries = new Map(entries.map(entry => [entry.id, entry]));
+    if (this.entries.size !== entries.length || entries.some(entry => !isSongId(entry.id))) {
+      throw new Error('Invalid or duplicate published recording IDs');
+    }
+  }
 
-  status() { return { configured: true, bundlesEnabled: true, featured: true }; }
+  status() { return { configured: this.entries.size > 0, bundlesEnabled: this.entries.size > 0 }; }
 
-  private summary(): SongSummary {
-    const { id, title, artist, album, duration } = this.entry;
-    return { id, title, artist, album, duration, provider: 'artist', availability: 'ready' };
+  private summary(entry: PublishedTrack): SongSummary {
+    const { id, title, artist, album, releaseId, duration, aliases } = entry;
+    return { id, title, artist, album, releaseId, duration, aliases, provider: 'artist', availability: 'ready' };
   }
 
   async search(query: string, signal: AbortSignal) {
     signal.throwIfAborted();
-    const needle = normalizeSearch(query);
-    const { title, artist } = this.entry;
-    return needle && [`${title} ${artist}`, `${artist} ${title}`].some(value => normalizeSearch(value).includes(needle)) ? [this.summary()] : [];
+    return [...this.entries.values()].filter(entry => songMatchScore(entry, query) > 0).map(entry => this.summary(entry));
+  }
+
+  private entry(id: string) {
+    const entry = this.entries.get(id);
+    if (!entry) throw new SongError('这版录音不存在。', 404);
+    return entry;
   }
 
   private async get(url: string, signal: AbortSignal, accept: string) {
@@ -62,29 +54,36 @@ export class PublishedCatalog implements SongCatalog {
   }
 
   async detail(id: string, signal: AbortSignal): Promise<SongRecord> {
-    if (id !== this.entry.id) throw new SongError('这版录音不存在。', 404);
-    const { audioUrl, sourceUrl, licenseUrl, rightsUrl, lyricSourceUrl, lyricsUrl, lyricHash } = this.entry;
-    const response = await this.get(lyricsUrl, signal, 'application/json');
-    if (response.status !== 200 || !response.body) {
+    const entry = this.entry(id);
+    const { audioUrl, sourceUrl, licenseUrl, rightsUrl, lyricSourceUrl, lyricsUrl, lyricHash, lyricsFormat } = entry;
+    const response = await this.get(lyricsUrl, signal, lyricsFormat === 'text' ? 'text/plain' : 'application/json');
+    if (response.status !== 200 || !response.body || (lyricsFormat === 'text' && response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/plain')) {
       await response.body?.cancel();
       throw new SongError('没有从作者曲库获取到这版歌词，请稍后重试。', 502);
     }
     let content: string;
-    try { content = extractRevision(await readBounded(response, 48 * 1024, signal)); }
-    catch {
+    let actualHash: string;
+    try {
+      const bytes = await readBounded(response, 48 * 1024, signal);
+      content = lyricsFormat === 'text' ? new TextDecoder('utf-8', { fatal: true }).decode(bytes) : extractRevision(bytes);
+      actualHash = sha256(lyricsFormat === 'text' ? bytes : content);
+    } catch {
       signal.throwIfAborted();
       throw new SongError('歌词来源没有返回已核对的版本。', 502);
     }
-    const text = /<lyrics>([\s\S]+?)<\/lyrics>/.exec(content)?.[1].replace(/\r\n?/g, '\n').trim();
-    if (sha256(content) !== lyricHash || !text) throw new SongError('歌词来源已变更，需要重新确认版本后才能打包。', 409);
-    return { track: { ...this.summary(), previewUrl: audioUrl, sourceUrl, licenseUrl, rightsUrl, lyricSourceUrl,
-      lyrics: { kind: 'plain', text } }, downloadUrl: new URL(audioUrl) };
+    if (actualHash !== lyricHash) throw new SongError('歌词来源已变更，需要重新确认版本后才能打包。', 409);
+    const text = (lyricsFormat === 'text' ? content : /<lyrics>([\s\S]+?)<\/lyrics>/.exec(content)?.[1] ?? '').replace(/\r\n?/g, '\n').trim();
+    const { lyrics } = parseLyrics(text, entry.duration);
+    if (!lyrics) throw new SongError('没有可打包的同版本歌词。', 409);
+    return { track: { ...this.summary(entry), previewUrl: audioUrl, sourceUrl, licenseUrl, rightsUrl, lyricSourceUrl,
+      lyrics: lyrics.kind === 'plain' ? { kind: 'plain', text } : lyrics }, downloadUrl: new URL(audioUrl) };
   }
 
   async audio({ track }: SongRecord, signal: AbortSignal) {
-    const response = await this.get(this.entry.audioUrl, signal, 'audio/mpeg, application/octet-stream');
+    const { audioUrl, audioHash } = this.entry(track.id);
+    const response = await this.get(audioUrl, signal, 'audio/mpeg, application/octet-stream');
     const audio = await readCompleteAudio(response, track, signal);
-    if (sha256(audio) !== this.entry.audioHash) throw new SongError('来源音频已变更，需要重新核对整曲版本。', 502);
+    if (sha256(audio) !== audioHash) throw new SongError('来源音频已变更，需要重新核对整曲版本。', 502);
     return audio;
   }
 }

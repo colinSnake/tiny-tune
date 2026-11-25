@@ -89,3 +89,11 @@ test('overlapping pages keep enriched metadata and stop restores the interrupted
   assert.deepEqual(restoreCanceled({ a: { status: 'running' }, b: { status: 'running' }, c: timed }, { a: failed }),
     { a: failed, b: { status: 'pending' }, c: timed });
 });
+
+test('local lookup can inspect more lyric versions without expanding normal catalog searches', async () => {
+  const rows = Array.from({ length: 105 }, (_, index) => ({ id: index + 1, trackName: 'Song', artistName: 'Singer',
+    albumName: 'Album', duration: 8, syncedLyrics: '[00:01]Original fixture', instrumental: false }));
+  const sources = new MusicSources(async () => Response.json(rows), 0);
+  assert.equal((await sources.searchLyrics('Song Singer')).length, 20);
+  assert.equal((await sources.searchLyrics('Song Singer', undefined, 100)).length, 100);
+});

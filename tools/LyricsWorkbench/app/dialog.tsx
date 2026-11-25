@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
 import { Icon } from './ui';
 
-export function WorkbenchDialog({ title, description, icon, eyebrow = 'TINYTUNE / 音乐工作台', onDismiss, children }: {
+export function WorkbenchDialog({ title, description, icon, eyebrow = '听页 / 歌曲与歌词工作台', onDismiss, children }: {
   title: string; description: string; icon: ComponentProps<typeof Icon>['name']; eyebrow?: string;
   onDismiss: () => void; children: ReactNode;
 }) {

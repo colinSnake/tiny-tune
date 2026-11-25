@@ -42,8 +42,8 @@ export type PlayerSource = {
   key: string; label: string; provenance: string; coverage: AudioCoverage; file?: Blob; url?: string; localName?: string;
 };
 
-export function AudioPanel({ track, source, candidates, library, missing, children }: {
-  track: Track; source?: PlayerSource; candidates: LocalAudio[]; library: AudioLibrary; missing: boolean; children?: ReactNode;
+export function AudioPanel({ track, source, candidates, library, missing, children, fixed = false }: {
+  track: Track; source?: PlayerSource; candidates: LocalAudio[]; library: AudioLibrary; missing: boolean; children?: ReactNode; fixed?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
@@ -59,15 +59,15 @@ export function AudioPanel({ track, source, candidates, library, missing, childr
       {source && <span className="source-badge">{source.coverage === 'clip' ? '试听片段' : '整曲音源'}</span>}
     </div>
     {children}
-    <div className="deck-actions">
+    {!fixed && <div className="deck-actions">
       <label className="button ghost file-button"><Icon name="audio" size={15} />{source ? '换用本地文件' : '选择本地音频'}
         <input type="file" accept={audioAccept} aria-label="为这首选择本地音频" disabled={blocked}
           onChange={e => { const file = e.currentTarget.files?.[0]; if (file) void library.importFiles([file], track.id); e.currentTarget.value = ''; }} />
       </label>
       <button type="button" className="button text-button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '收起音源选项' : '更多音源'}</button>
       {source && !track.id.startsWith('demo-') && <button type="button" disabled={blocked} className="button text-button unlink" onClick={() => library.bind(track.id, { kind: 'none' })}>解除绑定</button>}
-    </div>
-    {(!source && candidates.length > 0 || open) && <div className="source-options">
+    </div>}
+    {!fixed && (!source && candidates.length > 0 || open) && <div className="source-options">
       {choices.length > 0 && <div className="source-field">
         <label htmlFor="library-audio">{candidates.length ? `本地候选 · ${candidates.length} 首` : '从本地曲库选择'}</label>
         <div className="source-field-row"><select id="library-audio" value={selected} onChange={e => setSelected(e.target.value)}>

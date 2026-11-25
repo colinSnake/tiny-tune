@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="470" height="780" viewBox="0 0 470 780">
+<defs>
+<linearGradient id="surface" x1="28" y1="645" x2="391" y2="709" gradientUnits="userSpaceOnUse"><stop stop-color="#ECE0F9"/><stop offset="1" stop-color="#F3DFF1" stop-opacity="0"/></linearGradient>
+<linearGradient id="leaf" x1="-4" y1="415" x2="106" y2="627" gradientUnits="userSpaceOnUse"><stop stop-color="#F5ECFC"/><stop offset=".70" stop-color="#DECBF2"/><stop offset="1" stop-color="#D0B8EF"/></linearGradient>
+<linearGradient id="wave" x1="17" y1="548" x2="398" y2="701" gradientUnits="userSpaceOnUse"><stop stop-color="#A37BD9"/><stop offset=".46" stop-color="#CD93D0"/><stop offset="1" stop-color="#EFA3C7" stop-opacity="0"/></linearGradient>
+<filter id="drop" x="-.3" y="-.3" width="1.7" height="1.7"><feDropShadow dx="9" dy="16" stdDeviation="18" flood-color="#AE90CF" flood-opacity=".19"/></filter>
+</defs>
+<path d="M0 490 C147 552 194 601 326 652 Q401 681 470 673 V780 H0Z" fill="url(#surface)" opacity=".83"/>
+<g filter="url(#drop)">
+<path d="M-31 355 C15 438 72 397 114 448 C138 478 104 527 173 568 C84 550 37 568 -31 551Z" fill="#E9D5F4" stroke="#FFF6FE" stroke-width="2"/>
+<path d="M-31 328 C13 409 67 384 118 431 C149 460 102 506 171 550 C93 527 32 541 -31 521Z" fill="url(#leaf)" stroke="#FFF7FF" stroke-width="1.5"/>
+<path d="M-22 350 C31 417 79 405 111 446 C132 475 107 510 166 547" fill="none" stroke="#FFFBFF" stroke-opacity=".78" stroke-width="1.1"/>
+<path d="M-11 460 C51 486 91 473 118 506 M-11 479 C38 499 79 492 109 522" stroke="#A985D3" stroke-opacity=".31" fill="none"/>
+</g>
+<g stroke="url(#wave)" fill="none" stroke-linecap="round">
+<path d="M-5 529 C63 550 90 573 158 610 S338 704 455 697" stroke-width="1.85" opacity=".82"/>
+<path d="M-8 547 C61 572 100 601 159 631 S330 718 448 713" opacity=".65"/>
+<path d="M-8 565 C56 590 103 628 170 655 S322 738 439 730" opacity=".46"/>
+</g>
+<circle cx="59" cy="578" r="3" fill="#D17BB7" opacity=".65"/><circle cx="37" cy="385" r="2.5" fill="#BD91E1" opacity=".68"/><circle cx="31" cy="604" r="1.8" fill="#A277D2" opacity=".56"/>
+</svg>

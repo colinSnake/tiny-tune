@@ -63,3 +63,12 @@ test('同一搜索里的来源彼此独立；歌词源失败不隐藏可下载�
   assert.match(response.json().warning, /LRCLIB/);
   assert.equal((await app.inject(`/api/songs?source=other&q=${query}`)).statusCode, 400);
 });
+
+test('song search accepts artist and partial title in either order, including spaced English titles', async () => {
+  const { songMatchScore } = await import('../src/song-types');
+  const forest = { title: '挪威的森林', artist: '伍佰' };
+  assert.ok(songMatchScore(forest, '伍佰 森林') > 0);
+  assert.ok(songMatchScore(forest, '森林 伍佰') > 0);
+  assert.ok(songMatchScore({ title: 'Last Dance', artist: '伍佰' }, 'Last Dance 伍佰') > 0);
+  assert.equal(songMatchScore(forest, '伍佰 泪桥'), 0);
+});

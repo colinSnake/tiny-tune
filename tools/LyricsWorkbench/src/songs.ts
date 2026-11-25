@@ -1,8 +1,9 @@
 import JSZip from 'jszip';
 import { createHash } from 'node:crypto';
 import { BodyTooLarge, readBounded } from './response-body';
-import { lrcFilename } from './export';
+import { SongArchivePaths, songStem } from './song-archive';
 import { parseLrc } from './lrc';
+import { defaultLyricScript, formatLyricText, type LyricScript } from './lyric-script';
 import { RequestQueue, UpstreamError } from './providers';
 import { mp3Duration } from './song-mp3';
 import { normalizeSearch, type SongAvailability, type SongCatalogStatus, type SongDetail, type SongSummary } from './song-types';
@@ -20,6 +21,7 @@ export class SongError extends Error {
 
 export const songAvailability: Record<SongAvailability, string> = {
   ready: '可下载整曲与歌词',
+  'audio-only': '这版只有音频，可单独下载 MP3。',
   'stream-only': '这版录音没有允许下载的完整音频。',
   'missing-lyrics': '这版录音没有可用的同版本歌词。',
   review: '这版录音的打包授权、音频来源或歌词时码尚未核对。',
@@ -128,7 +130,9 @@ export class JamendoCatalog implements SongCatalog {
     const availability: SongAvailability = row.audiodownload_allowed !== true || !row.audiodownload ? 'stream-only'
       : conflict ? 'review' : !lyrics ? 'missing-lyrics'
         : !downloadUrl || !license || !this.options.allowBundles || !this.approved.has(id) ? 'review' : 'ready';
-    return { track: { provider: 'jamendo', id, title, artist, album: label(row.album_name), duration, previewUrl, lyrics,
+    const albumId = String(row.album_id ?? '');
+    const releaseId = isSongId(albumId) ? albumId : undefined;
+    return { track: { provider: 'jamendo', id, title, artist, album: label(row.album_name), releaseId, duration, previewUrl, lyrics,
       sourceUrl: `https://www.jamendo.com/track/${id}`, licenseUrl: license, availability }, downloadUrl };
   }
 
@@ -140,8 +144,8 @@ export class JamendoCatalog implements SongCatalog {
       const track = this.record(input)?.track;
       if (!track || !needle || ![track.title, track.artist, `${track.title} ${track.artist}`, `${track.artist} ${track.title}`]
         .some(text => normalizeSearch(text).includes(needle))) continue;
-      const { provider, id, title, artist, album, duration, availability } = track;
-      if (!tracks.has(id)) tracks.set(id, { provider, id, title, artist, album, duration, availability });
+      const { provider, id, title, artist, album, releaseId, duration, availability } = track;
+      if (!tracks.has(id)) tracks.set(id, { provider, id, title, artist, album, releaseId, duration, availability });
     }
     return [...tracks.values()];
   }
@@ -194,7 +198,7 @@ export class JamendoCatalog implements SongCatalog {
 
 export const sha256 = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 
-export async function readCompleteAudio(response: Response, track: SongDetail, signal: AbortSignal) {
+export async function readCompleteAudio(response: Response, track: Pick<SongDetail, 'duration' | 'lyrics'>, signal: AbortSignal) {
   const mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
   const length = response.headers.get('content-length');
   const expected = length === null ? null : Number(length);
@@ -224,25 +228,25 @@ export async function readCompleteAudio(response: Response, track: SongDetail, s
   return audio;
 }
 
-export async function songZip(catalog: SongCatalog, id: string, signal: AbortSignal) {
+export async function songZip(catalog: SongCatalog, id: string, signal: AbortSignal, lyricScript: LyricScript = defaultLyricScript) {
   const record = await catalog.detail(id, signal);
   const { track } = record;
   if (track.availability !== 'ready' || !track.lyrics) throw new SongError(songAvailability[track.availability], 409);
   const audio = await catalog.audio(record, signal);
   signal.throwIfAborted();
-  const lrc = lrcFilename(`${track.artist} - ${track.title}`);
-  const mp3 = `${lrc.slice(0, -4)}.mp3`;
+  const stem = songStem(track);
+  const { audio: mp3, lyrics: lrc } = new SongArchivePaths().add(track, stem);
   const zip = new JSZip();
   zip.file(mp3, audio);
-  zip.file(lrc, `${track.lyrics.text}\n`);
-  zip.file('manifest.json', JSON.stringify({ version: 1, title: track.title, artist: track.artist, album: track.album,
-    duration: track.duration, source: { provider: track.provider, id, url: track.sourceUrl, license: track.licenseUrl, rights: track.rightsUrl },
+  zip.file(lrc, `${formatLyricText(track.lyrics.text, lyricScript)}\n`);
+  zip.file('manifest.json', JSON.stringify({ version: 2, title: track.title, artist: track.artist, album: track.album, releaseId: track.releaseId,
+    duration: track.duration, source: { provider: track.provider, id, url: track.sourceUrl, license: track.licenseUrl, rights: track.rightsUrl, credits: track.credits },
     audio: { file: mp3, format: 'mp3' }, lyrics: { file: lrc, kind: track.lyrics.kind, source: track.lyricSourceUrl ?? track.sourceUrl } }, null, 2) + '\n');
   // JSZip's async progress callback cannot safely propagate a thrown abort. Finish bounded in-memory
   // generation, then discard the result on abort rather than letting an exception escape the worker.
   const body = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE', streamFiles: true });
   signal.throwIfAborted();
-  return { body, filename: `${lrc.slice(0, -4)}.zip` };
+  return { body, filename: `${stem}.zip` };
 }
 
 export function songSourceError(error: unknown) {

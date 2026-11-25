@@ -44,3 +44,22 @@ test('exports only confirmed items, avoids collisions and includes a manifest', 
   assert.equal(await zip.file(data.files[0].name)?.async('string'), sample);
   assert.equal(JSON.parse((await zip.file('manifest.json')?.async('string'))!).tracks.length, 3);
 });
+
+test('lyrics export changes only the body, and original mode leaves the text intact', async () => {
+  const track = { id: 'test-script', title: '測試曲', artist: '測試歌手', albums: [], duration: 10 };
+  const synced = '\ufeff[ti:測試曲]\r\n[offset:+125]\r\n[00:01.00][00:03.500] 聽歌、我鍾意你 <00:01.25>頭髮\r\n[00:04.000]\r\n[00:05]Hello!';
+  const simplified = synced.replace('聽歌、我鍾意你', '听歌、我钟意你').replace('頭髮', '头发');
+  const candidate = { ...track, id: 2, album: '', instrumental: false, synced, plain: '' };
+  const items: CollectionItem[] = [{ track, result: { status: 'timed', candidate } },
+    { track: { ...track, id: 'plain-script', title: '獨立歌詞' }, result: { status: 'plain', candidate: { ...candidate, synced: '', plain: '繁體中文\nKeep English' } } }];
+  const data = exportEntries(items);
+  assert.equal(data.files[0].name, '測試曲.lrc');
+  assert.equal(data.files[0].text, simplified);
+  assert.equal(data.files[1].text, '繁体中文\nKeep English');
+  assert.deepEqual(parseLrc(data.files[0].text).cues.map(cue => [cue.ms, !!cue.lines.length]),
+    parseLrc(synced).cues.map(cue => [cue.ms, !!cue.lines.length]));
+  const zip = await JSZip.loadAsync(await createArchive(data));
+  assert.equal(await zip.file('測試曲.lrc')?.async('string'), simplified);
+  assert.equal(exportEntries(items, undefined, 'original').files[0].text, synced);
+  assert.equal(candidate.synced, synced);
+});

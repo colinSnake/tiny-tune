@@ -13,6 +13,12 @@ export function candidateResult(candidate: LyricCandidate): LyricResult {
   return { status: 'missing' };
 }
 
+export function plainCandidate(candidate: LyricCandidate): LyricCandidate {
+  const parsed = parseLrc(candidate.plain || candidate.synced);
+  const plain = parsed.cues.length ? parsed.cues.flatMap(cue => cue.lines).join(String.fromCharCode(10)) : parsed.plain;
+  return { ...candidate, synced: '', plain };
+}
+
 export function matchLyrics(track: Track, candidates: LyricCandidate[]): LyricResult {
   const albums = new Set(track.albums.map(normalize).filter(Boolean));
   const eligible = candidates.map(candidate => ({ candidate, result: candidateResult(candidate) }))

@@ -66,7 +66,7 @@ async function main() {
   if (signal.aborted) { process.exitCode = 130; console.error('已停止，保留已处理结果。'); }
   const output = resolve(values.out);
   await mkdir(output, { recursive: true });
-  const { files, manifest } = exportEntries(log);
+  const { files, manifest } = exportEntries(log, undefined, 'original');
   for (const { name, text } of files) {
     try { await writeFile(join(output, name), text, { flag: 'wx' }); }
     catch (error) {
