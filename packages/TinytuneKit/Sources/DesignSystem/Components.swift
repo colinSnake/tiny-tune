@@ -9,23 +9,36 @@ import UIKit
 #endif
 
 public enum TuneTheme {
-    public static var canvas: Color { adaptive(0xFAF8EF, 0x20261F) }
-    public static var raised: Color { adaptive(0xFFFEF8, 0x293228) }
-    public static var primary: Color { adaptive(0x242B23, 0xEEF1E6) }
-    public static var secondary: Color { adaptive(0x586154, 0xB8C2B1) }
-    public static var accent: Color { adaptive(0x355541, 0xC4D5A7) }
-    public static var onAccent: Color { adaptive(0xFAF7EA, 0x263529) }
-    public static var subtle: Color { adaptive(0xE6EADA, 0x354332) }
-    public static var problem: Color { adaptive(0x9B3C49, 0xFFB3BC) }
+    /// Core brand endpoints: iris violet to soft rose.
+    public static let brandViolet = Color(red: 131.0 / 255, green: 103.0 / 255, blue: 244.0 / 255)
+    public static let brandRose = Color(red: 237.0 / 255, green: 131.0 / 255, blue: 181.0 / 255)
+    public static var brandGradient: LinearGradient {
+        LinearGradient(colors: [brandViolet, brandRose], startPoint: .leading, endPoint: .trailing)
+    }
+
+    public static var canvas: Color { adaptive(0xFAF8FC, 0x19151F) }
+    public static var raised: Color { adaptive(0xFFFFFF, 0x27212D) }
+    public static var primary: Color { adaptive(0x2A2331, 0xF7F1FA) }
+    public static var secondary: Color { adaptive(0x756B7E, 0xBDB3C7) }
+    /// Solid, contrast-safe accent for text, focus rings, and native controls.
+    public static var accent: Color { adaptive(0x6D4AC4, 0xC1A9FF) }
+    public static var onAccent: Color { adaptive(0xFFFFFF, 0x241A31) }
+    public static var subtle: Color { adaptive(0xF0EAF8, 0x3B3245) }
+    public static var problem: Color { adaptive(0xA8334B, 0xFF9CAB) }
+
+    fileprivate static var trackArtworkPlaceholder: Color { adaptive(0xEDE7F8, 0x3B3245) }
+    fileprivate static var onTrackArtworkPlaceholder: Color { adaptive(0x7651C8, 0xD2C0FF) }
 
     #if os(macOS)
-    /// Pine greens dark enough to retain contrast with white sidebar labels.
+    static var macLibraryCanvas: Color { adaptive(0xFBF9FC, 0x1D1924) }
+
+    /// The desktop pink-violet treatment keeps white sidebar and action text legible.
     public static var sidebarSelection: LinearGradient {
-        LinearGradient(colors: [adaptive(0x47604C, 0x4B6249), adaptive(0x355541, 0x354B39)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [adaptive(0x7658CA, 0x7658CA), adaptive(0xA257A6, 0xA257A6)],
+                       startPoint: .leading, endPoint: .trailing)
     }
     #else
-    /// Use the shared brand accent on the native tab bar material.
+    /// Native tab controls use the solid accent, not the low-contrast gradient.
     public static var phoneTabSelection: Color { accent }
     #endif
 
@@ -55,13 +68,21 @@ public extension View {
 }
 
 public struct ArtworkTile: View {
+    fileprivate enum Placeholder { case foldedRecord, photo }
+
     private let artwork: URL?
     private let size: CGFloat?
+    private let placeholder: Placeholder
     @State private var localArtwork: CGImage?
 
     public init(artwork: URL? = nil, size: CGFloat? = nil) {
+        self.init(artwork: artwork, size: size, placeholder: .foldedRecord)
+    }
+
+    fileprivate init(artwork: URL?, size: CGFloat?, placeholder: Placeholder) {
         self.artwork = artwork
         self.size = size
+        self.placeholder = placeholder
     }
 
     public var body: some View {
@@ -71,8 +92,15 @@ public struct ArtworkTile: View {
                 Image(decorative: localArtwork, scale: 1)
                     .resizable()
                     .scaledToFit()
+            } else if placeholder == .photo {
+                TuneTheme.trackArtworkPlaceholder
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(TuneTheme.onTrackArtworkPlaceholder)
+                    }
             } else {
-                Image(decorative: "FoldedRecord", bundle: .module)
+                Image(decorative: "TingyeFoldedRecord", bundle: .module)
                     .renderingMode(.original)
                     .resizable()
             }
@@ -107,37 +135,29 @@ public struct TunePrimaryButton: ButtonStyle {
 
 public struct TrackRowContent: View {
     let title: String
-    let detail: String
+    let artist: String
     let duration: String
     let state: String?
-    let stateSymbol: String?
+    let stateIcon: TrackRowStatusIcon?
     let artwork: URL?
-    let trackNumber: Int?
     @Environment(\.dynamicTypeSize) private var textSize
 
-    public init(title: String, detail: String, duration: String, state: String?, artwork: URL?,
-                trackNumber: Int? = nil, stateSymbol: String? = nil) {
+    public init(title: String, artist: String, duration: String, state: String?, artwork: URL?,
+                stateIcon: TrackRowStatusIcon? = nil) {
         self.title = title
-        self.detail = detail
+        self.artist = artist
         self.duration = duration
         self.state = state
-        self.stateSymbol = stateSymbol
+        self.stateIcon = stateIcon
         self.artwork = artwork
-        self.trackNumber = trackNumber
     }
 
     public var body: some View {
         HStack(spacing: 12) {
-            if let trackNumber {
-                Text(trackNumber, format: .number)
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(TuneTheme.secondary)
-                    .frame(width: 40)
-                    .accessibilityHidden(true)
-            } else { ArtworkTile(artwork: artwork, size: 40) }
+            ArtworkTile(artwork: artwork, size: 40, placeholder: .photo)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.body.weight(.medium)).foregroundStyle(TuneTheme.primary)
-                Text(detail).foregroundStyle(TuneTheme.secondary).font(.subheadline)
+                Text(artist).foregroundStyle(TuneTheme.secondary).font(.subheadline)
                 if textSize.isAccessibilitySize { trailingMetadata }
             }
             .layoutPriority(1)
@@ -160,12 +180,13 @@ public struct TrackRowContent: View {
 
     private func stateLabel(_ state: String) -> some View {
         Group {
-            if let stateSymbol {
-                let label = Label(state, systemImage: stateSymbol)
+            if let stateIcon {
+                let label = Label { Text(state) } icon: { TrackRowStatusGlyph(icon: stateIcon) }
                 ViewThatFits(in: .horizontal) {
                     label.labelStyle(.titleAndIcon)
                     label.labelStyle(.iconOnly)
                 }
+                .accessibilityLabel(Text(state))
             } else {
                 Text(state).lineLimit(1)
             }

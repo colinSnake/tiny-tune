@@ -3,9 +3,14 @@ import SwiftUI
 import XCTest
 
 final class TuneThemeTests: XCTestCase {
-    func testAccentResolvesToThePinePaletteInBothAppearances() {
-        XCTAssertEqual(hex(TuneTheme.accent, .light), 0x355541)
-        XCTAssertEqual(hex(TuneTheme.accent, .dark), 0xC4D5A7)
+    func testAccentResolvesToTheIrisPaletteInBothAppearances() {
+        XCTAssertEqual(hex(TuneTheme.accent, .light), 0x6D4AC4)
+        XCTAssertEqual(hex(TuneTheme.accent, .dark), 0xC1A9FF)
+    }
+
+    func testBrandGradientUsesTheApprovedVioletAndRoseEndpoints() {
+        XCTAssertEqual(hex(TuneTheme.brandViolet, .light), 0x8367F4)
+        XCTAssertEqual(hex(TuneTheme.brandRose, .light), 0xED83B5)
     }
 
     func testThemeTextRetainsContrastInBothAppearances() {

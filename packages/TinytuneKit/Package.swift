@@ -14,7 +14,7 @@ let package = Package(
         .target(name: "DesignSystem", dependencies: ["Domain"], resources: [.process("Resources")]),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"]),
         .testTarget(name: "DomainTests", dependencies: ["Domain"]),
-        .testTarget(name: "LibraryTests", dependencies: ["Domain", "Library"]),
+        .testTarget(name: "LibraryTests", dependencies: ["Domain", "Library"], resources: [.copy("Fixtures")]),
         .testTarget(name: "PlaybackTests", dependencies: ["Domain", "Playback"]),
     ]
 )

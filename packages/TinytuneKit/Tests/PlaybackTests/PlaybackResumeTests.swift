@@ -1,9 +1,136 @@
+import CoreGraphics
 import Domain
 import Foundation
+import ImageIO
+import MediaPlayer
 @testable import Playback
 import XCTest
 
 final class PlaybackResumeTests: XCTestCase {
+    @MainActor
+    func testPlayingPausedRowResumesWithoutReplacingQueue() async throws {
+        let store = try tempStore()
+        let current = try track("Current", album: "First album")
+        let next = try track("Next", album: "Second album")
+        let alternate = try track("Alternate", album: "Third album")
+        let audio = try fixture(store, "row-resume")
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { _ in PlayableResource(url: audio, retaining: audio) }
+        defer { player.pause() }
+
+        player.play(current, in: [current, next])
+        try await wait { player.phase == .playing && player.seekingAvailable }
+        player.pause()
+        player.seek(6)
+        try await wait { player.position >= 5.9 }
+        player.play(current, in: [current, alternate])
+        try await wait { player.phase == .playing }
+        XCTAssertGreaterThanOrEqual(player.position, 5.9)
+        XCTAssertEqual(player.upcoming.map(\.id), [next.id])
+        try await wait {
+            player.checkpoint()
+            return player.position > 6.1
+        }
+        player.next()
+        try await wait { player.current?.id == next.id && player.phase == .playing }
+
+        player.pause()
+        player.play(alternate, in: [alternate, current])
+        try await wait { player.current?.id == alternate.id && player.phase == .playing }
+        XCTAssertEqual(player.upcoming.map(\.id), [current.id], "A different row uses its own collection")
+    }
+
+    @MainActor
+    func testPlayingRestoredPausedRowResumesButPlayAllStartsFresh() async throws {
+        let store = try tempStore()
+        let tracks = try [track("Previous"), track("Current"), track("Next"), track("Alternate")]
+        let originalQueue = Array(tracks.prefix(3))
+        let current = tracks[1]
+        let otherCollection = [current, tracks[3]]
+        try seed(store, ids: originalQueue.map(\.id), currentID: current.id, position: 7, repeatMode: .off)
+        let audio = try fixture(store, "row-checkpoint")
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { _ in PlayableResource(url: audio, retaining: audio) }
+        defer { player.pause() }
+        player.restoreCheckpoint(tracks: tracks)
+        XCTAssertEqual(player.phase, .paused)
+
+        player.play(current, in: otherCollection)
+        try await wait { player.phase == .playing }
+        XCTAssertGreaterThanOrEqual(player.position, 6.9)
+        XCTAssertEqual(player.upcoming.map(\.id), [tracks[2].id])
+
+        player.pause()
+        player.playAll(otherCollection)
+        XCTAssertEqual(player.current?.id, current.id)
+        XCTAssertEqual(player.upcoming.map(\.id), [tracks[3].id])
+        XCTAssertEqual(player.position, 0)
+        try await wait { player.phase == .playing }
+    }
+
+    @MainActor
+    func testSystemArtworkFollowsRestoredTrackAndRefreshedMetadata() async throws {
+        let store = try tempStore()
+        let initial = try track("Artwork", album: "Local album")
+        func withArtwork(_ key: String?) -> Track {
+            .init(id: initial.id, rootID: initial.rootID, path: initial.path, metadata: initial.metadata,
+                  duration: initial.duration, dateAdded: initial.dateAdded, artworkKey: key)
+        }
+        func image(side: Int) throws -> CGImage {
+            let context = try XCTUnwrap(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8,
+                                                bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(red: 0.2, green: 0.6, blue: 0.4, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            return try XCTUnwrap(context.makeImage())
+        }
+        let folder = store.url.deletingLastPathComponent()
+        func writeImage(_ name: String, side: Int) throws {
+            let cover = folder.appendingPathComponent(name + ".png")
+            let png = try XCTUnwrap(CGImageDestinationCreateWithURL(cover as CFURL, "public.png" as CFString, 1, nil))
+            CGImageDestinationAddImage(png, try image(side: side), nil)
+            XCTAssertTrue(CGImageDestinationFinalize(png))
+        }
+        try writeImage("original", side: 64)
+
+        try seed(store, ids: [initial.id], currentID: initial.id, position: 6, repeatMode: .off)
+        let center = MPNowPlayingInfoCenter.default()
+        let fallback = try image(side: 32)
+        let player = Player(snapshotStore: store, artworkURL: { track in
+            track.artworkKey.map { folder.appendingPathComponent($0 + ".png") }
+        }, fallbackArtwork: { fallback })
+        player.connectSystemControls()
+        defer { player.removeTracks([initial.id]) }
+        func artwork() -> MPMediaItemArtwork? { center.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork }
+
+        player.restoreCheckpoint(tracks: [withArtwork("original")])
+        try await wait { artwork()?.bounds.width == 64 }
+        let published = try XCTUnwrap(artwork())
+        XCTAssertEqual(published.image(at: CGSize(width: 16, height: 16))?.size.width, 16)
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Artwork")
+        XCTAssertEqual(center.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 6)
+        player.pause()
+        XCTAssertTrue(artwork() === published, "Pausing reuses the loaded cover")
+
+        player.refreshCatalogMetadata([withArtwork("missing")])
+        XCTAssertEqual(artwork()?.bounds.width, 32, "A previous cover must not remain while the new cover loads")
+        try writeImage("missing", side: 48)
+        // A rescan can repair an evicted thumbnail without changing its metadata.
+        try await wait {
+            player.refreshCatalogMetadata([withArtwork("missing")])
+            return artwork()?.bounds.width == 48
+        }
+
+        player.refreshCatalogMetadata([withArtwork("original")])
+        player.refreshCatalogMetadata([withArtwork(nil)])
+        XCTAssertEqual(artwork()?.bounds.width, 32)
+        player.resume()
+        XCTAssertEqual(player.phase, .failed)
+        XCTAssertNil(center.nowPlayingInfo)
+    }
+
     @MainActor
     func testRestoreUsesSavedOrderAndDoesNotOpenAudio() async throws {
         let store = try tempStore()
@@ -13,6 +140,8 @@ final class PlaybackResumeTests: XCTestCase {
         let player = Player(snapshotStore: store)
         player.configure { _ in try await probe.open() }
         player.restoreCheckpoint(tracks: [tracks[3], tracks[1], tracks[0]])
+        XCTAssertEqual(try store.load()?.queue.ids, [tracks[0].id, tracks[1].id, tracks[3].id],
+                       "Persist pruning immediately so deleted songs cannot return on the next launch")
 
         XCTAssertEqual(player.current?.id, tracks[1].id)
         XCTAssertEqual(player.upcoming.map(\.id), [tracks[3].id])
@@ -39,6 +168,9 @@ final class PlaybackResumeTests: XCTestCase {
         try seed(store, ids: tracks.map(\.id), currentID: tracks[1].id, position: 4, repeatMode: .off)
         let player = Player(snapshotStore: store)
         player.restoreCheckpoint(tracks: [tracks[0], tracks[2]])
+        let persisted = try XCTUnwrap(store.load())
+        XCTAssertFalse(persisted.queue.ids.contains(tracks[1].id))
+        XCTAssertEqual(persisted.position, 0)
         XCTAssertNil(player.current)
         XCTAssertEqual(player.upcoming.map(\.id), [tracks[2].id])
         XCTAssertEqual(player.position, 0)
@@ -103,6 +235,35 @@ final class PlaybackResumeTests: XCTestCase {
     }
 
     @MainActor
+    func testSeekingKeepsPlaybackIntentForPlayingAndPausedAudio() async throws {
+        let store = try tempStore()
+        let audio = store.url.deletingLastPathComponent().appendingPathComponent("seek-fixture.wav")
+        try writeSilentWAV(to: audio, seconds: 12)
+        let song = try track("Seek", duration: 12)
+        try seed(store, ids: [song.id], currentID: song.id, position: 1, repeatMode: .off)
+        let player = Player(snapshotStore: store)
+        player.configure { _ in PlayableResource(url: audio, retaining: audio) }
+        player.restoreCheckpoint(tracks: [song])
+        player.resume()
+        defer { player.pause() }
+        try await wait { player.phase != .loading }
+        XCTAssertEqual(player.phase, .playing)
+        XCTAssertTrue(player.seekingAvailable)
+
+        player.seek(7)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(player.phase, .playing)
+        player.pause()
+        XCTAssertEqual(player.position, 7, accuracy: 0.5)
+
+        player.seek(3)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(player.phase, .paused)
+        player.pause()
+        XCTAssertEqual(player.position, 3, accuracy: 0.1)
+    }
+
+    @MainActor
     func testReplacedFileWithShorterDurationRestartsAtZero() async throws {
         let store = try tempStore()
         let audio = store.url.deletingLastPathComponent().appendingPathComponent("short.wav")
@@ -119,6 +280,33 @@ final class PlaybackResumeTests: XCTestCase {
         XCTAssertEqual(player.duration, 2, accuracy: 0.01)
         XCTAssertEqual(player.position, 0, accuracy: 0.01)
         XCTAssertEqual(try store.load()?.position, 0)
+    }
+
+    @MainActor
+    func testPlayAllReplacesAlbumQueueAndAdvancesInListOrderAcrossAlbums() async throws {
+        let store = try tempStore()
+        let first = try track("Zebra", duration: 1, album: "Live")
+        let next = try track("Apple", album: "Studio")
+        let last = try track("Middle", album: "Live")
+        let short = try fixture(store, "library-start", seconds: 1)
+        let audio = try fixture(store, "library-queue")
+        let player = Player(snapshotStore: store)
+        player.configure { track in
+            let file = track.id == first.id ? short : audio
+            return PlayableResource(url: file, retaining: file)
+        }
+        player.play(first, in: [first, last])
+        XCTAssertEqual(player.upcoming.map(\.id), [last.id])
+
+        player.playAll([first, next, last])
+        XCTAssertEqual(player.current?.id, first.id)
+        XCTAssertEqual(player.upcoming.map(\.id), [next.id, last.id])
+        try await wait { player.current?.id == next.id && player.phase == .playing }
+        XCTAssertEqual(player.upcoming.map(\.id), [last.id])
+        player.next()
+        try await wait { player.current?.id == last.id && player.phase == .playing }
+        XCTAssertTrue(player.upcoming.isEmpty)
+        player.pause()
     }
 
     @MainActor
@@ -546,9 +734,9 @@ final class PlaybackResumeTests: XCTestCase {
         XCTAssertTrue(finished(), "Playback did not settle before the deadline")
     }
 
-    private func track(_ title: String, duration: Double = 20) throws -> Track {
+    private func track(_ title: String, duration: Double = 20, album: String? = nil) throws -> Track {
         .init(rootID: UUID(), path: try XCTUnwrap(RelativeAudioPath("\(title).wav")),
-              metadata: .init(title: title, artist: nil, albumArtist: nil, album: nil), duration: duration)
+              metadata: .init(title: title, artist: nil, albumArtist: nil, album: album), duration: duration)
     }
 
     private func tempStore() throws -> PlaybackSnapshotStore {
@@ -607,4 +795,58 @@ private actor CandidateProbe {
     func restore(_ id: UUID, with url: URL) { resources[id] = url }
     func makeUnavailable(_ id: UUID) { resources[id] = nil }
     func releaseSuspended() { gate?.resume(); gate = nil }
+}
+
+extension PlaybackResumeTests {
+    @MainActor
+    func testRefreshTrackDisplayNamesWithoutReorderingOrOpeningPlayback() async throws {
+        let store = try tempStore()
+        let songs = try [track("Start"), track("Upcoming"), track("Last")]
+        try seed(store, ids: songs.map(\.id), currentID: songs[0].id, position: 4, repeatMode: .one)
+        let probe = ResolverProbe()
+        let player = Player(snapshotStore: store)
+        player.configure { _ in try await probe.open() }
+        player.restoreCheckpoint(tracks: songs)
+        let edits = songs.map { song in
+            Track(id: song.id, rootID: song.rootID, path: song.path,
+                  metadata: .init(title: "Edited \(song.metadata.title)", artist: "Artist", albumArtist: nil, album: nil),
+                  duration: song.duration)
+        }
+        player.refreshCatalogMetadata(edits.reversed())
+        XCTAssertEqual(player.current?.metadata.title, "Edited Start")
+        XCTAssertEqual(player.upcoming.map(\.id), Array(songs.dropFirst().map(\.id)))
+        XCTAssertEqual(player.upcoming.first?.metadata.title, "Edited Upcoming")
+        XCTAssertEqual(player.position, 4)
+        XCTAssertEqual(player.phase, .paused)
+        XCTAssertEqual(player.mode, .repeatOne)
+        let calls = await probe.calls
+        XCTAssertEqual(calls, 0)
+    }
+}
+
+extension PlaybackResumeTests {
+    @MainActor
+    func testRemovingLaterTrackDoesNotCancelPendingSwitchOrRestoreRemovedItems() async throws {
+        let store = try tempStore()
+        let audio = store.url.deletingLastPathComponent().appending(component: "audio.wav")
+        try writeSilentWAV(to: audio, seconds: 12)
+        let songs = try [track("A"), track("B"), track("C"), track("D")]
+        let player = Player(snapshotStore: store)
+        player.configure { song in
+            if song.id == songs[1].id { try await Task.sleep(for: .milliseconds(180)) }
+            return PlayableResource(url: audio, retaining: audio)
+        }
+        player.playAll(songs)
+        try await wait { player.phase == .playing }
+        player.next()
+        XCTAssertEqual(player.phase, .loading)
+        player.removeTracks([songs[2].id])
+        XCTAssertEqual(player.phase, .loading)
+        try await wait { player.phase != .loading }
+        XCTAssertEqual(player.phase, .playing)
+        XCTAssertEqual(player.current?.id, songs[1].id)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[3].id])
+        XCTAssertFalse(try XCTUnwrap(store.load()).queue.ids.contains(songs[2].id))
+    }
+
 }

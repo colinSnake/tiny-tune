@@ -1,0 +1,21 @@
+{
+  "status": "design-only, not approved for implementation",
+  "reference": "tools/LyricsWorkbench/public/landscape.svg",
+  "referenceSHA256": "5b8c1a163b929ce282d3e0ac6998464f81b4de1ec6beb52366616c4947680faa",
+  "composition": "390 × 844 pt; original source vector layers recomposed at scale 0.69 and translated (-191, 48); page-fade and day/night color mapping",
+  "reusedAssets": [
+    "FoldedRecord-Light.svg",
+    "FoldedRecord-Dark.svg",
+    "apps/Shared/Assets.xcassets/AppIcon.appiconset/AppIcon-iOS.png"
+  ],
+  "data": "All song names, folder names, counts and dates in the draft are illustrative, not a live library read.",
+  "date": "2026-11-24",
+  "foregroundOpacity": {
+    "light": 0.34,
+    "dark": 0.45
+  },
+  "verticalFadePoints": [
+    210,
+    300
+  ]
+}

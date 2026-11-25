@@ -1,34 +1,31 @@
-# 曲笺 · Tinytune 品牌
+# 听页 · Tinytune 品牌
 
-App 显示名为「曲笺」，英文工程名 Tinytune、构建产物 `Tinytune.app` 和 Bundle ID `org.tinytune.player` 保持不变。
+面向用户的 App 名称为「听页」，macOS 构建产物为 `听页.app`；工程、scheme、内部产品名及 Bundle ID `org.tinytune.player` 保持不变。品牌表达采用候选 03「折光笺」：折页轮廓中以负形留出音符，传达“为音乐留一页”的安静、轻盈感。
 
-正式图标定为「弦风 · 琴身嵌梅」（[位置对照图](tinytune-brand-plum-blossom-preview.png)中间的 **01**）。保留琵琶与竹笛交叠的构图，在琵琶琴身右侧嵌一朵淡金五瓣梅；琴头和笛口之间留白，不加枝叶或文字。
+## 标志与色彩
 
-- **正式源稿**：[琴身嵌梅 SVG](tinytune-app-icon-xianfeng-plum-inlay.svg)。暖燕麦至浅苔绿底板 `#F2ECD9` → `#C9CEAE`，配松墨绿琵琶、低饱和绿竹笛与淡金梅花 `#CFBB91`。
-- **应用主题**：「松笺」。浅色用暖纸白背景与松墨绿 `#355541`，深色用墨绿背景与浅苔绿 `#C4D5A7`。导航、按钮、播放进度与插画使用同一色系；不染真实专辑封面，图标点缀色不用于警告状态。完整语义色见 [UI 设计 · 视觉系统](../ui-design.md#6-视觉系统与组件)。
+- **正式源稿**：[听页 Logo SVG](tingye-logo.svg)。主色由鸢尾紫 `#8367F4` 过渡到玫瑰粉 `#ED83B5`，中段为柔和紫。Logo 使用渐变；小字号正文、状态文本和错误提示不使用渐变。
+- **语义色**：浅色底 `#FAF8FC`、白色浮层、主文字 `#2A2331`、辅助文字 `#756B7E`；深色底 `#19151F`、浮层 `#27212D`、浅色文字 `#F7F1FA`。按钮与可读控件使用实色鸢尾紫 `#6D4AC4`（深色外观 `#C1A9FF`），不以渐变替代文本对比。警告、错误、成功维持独立语义色。
+- **使用原则**：真实专辑封面保留原色；品牌紫粉用于标志、选中反馈和少量主要强调，不铺满整页。
+- **图标导出**：iOS PNG 使用不透明浅纸底；macOS 图标使用透明画布。通过 `scripts/render-tingye-icons.py` 从主 SVG 同步导出，勿单独手工漂移图形。
 
-iOS 和 macOS 共用 [`AppIcon` 资源集](../../apps/Shared/Assets.xcassets/AppIcon.appiconset/)，其中 PNG 由同一个 SVG 导出：
+## 插画语言
 
-- **iOS**：移除底板的圆角，导出 1024 × 1024 的不透明 RGB PNG；系统裁剪图标外轮廓。
-- **macOS**：保留底板圆角，将图形缩至 824 × 824，居中放在 1024 × 1024 的透明画布上，再按资源集要求缩放。相同像素尺寸的槽位复用同一文件。
+插画以“折页 × 声音流动”为主线，用纸张折层、弧形声波、留白与克制的紫粉渐变构图。原生构图源稿位于 [`illustrations/`](illustrations/)；不以山水、传统乐器、梅花或植物纹样作为当前品牌视觉。
 
-更新图标时请同时更新两端的 PNG，并用 `scripts/check.sh` 检查两端构建。
+- **macOS**：[`mac-fold-light.svg`](illustrations/mac-fold-light.svg) 与 [`mac-fold-dark.svg`](illustrations/mac-fold-dark.svg) 分别在 Chromium 中以 1080 × 680 透明画布、2× 像素倍率渲染为 PNG，由 `TingyeMacLibraryBackground` 资产随系统明暗切换。插画固定在主内容区右下，空曲库、列表、搜索、来源共用；不延到侧栏、歌词栏或正在播放页。窗口较窄时降低插画存在感；增强对比度和辅助大字隐藏插画。
+- **LyricsWorkbench**：`public/web-paper-left.svg` 与 `public/web-paper-right.svg` 铺在页面两侧，不属于搜索页头；窄屏只保留右上角折页，歌曲和歌词面板以实色遮挡插画。高对比度和强制颜色模式隐藏插画。
+- **iOS**：「耳边折页」沿右下角展开，[浅色](illustrations/iphone-earfold-light.svg)与[深色](illustrations/iphone-earfold-dark.svg)源稿通过 `sips -s format png` 渲染为 1170 × 672 透明 PNG，存入 `TingyePhoneLibraryBackground`。曲库、搜索与来源共用一层固定背景；空曲库用较高不透明度，浏览态减淡。短视口按比例缩小，增强对比度和辅助大字时隐藏。正在播放页背景与真实封面比例保持不变。
 
-## 原创山水背景「山间听曲」
-
-以飞鸟版设计稿为准：借竹笛的斜势画远山，借琵琶的弧线画近岸，淡金只点在亭檐与灯窗。macOS 横卷用四羽，iOS 窄屏重构用三羽；浅色为暖纸松墨，深色为雾绿山影。原稿在 [`landscape/`](landscape/)，均为本项目原创，不使用馆藏或其他第三方插画。
-
-背景只放在空曲库的内容区底层；不进入歌曲列表、搜索、播放控件或系统导航，也不随空态内容滚动。放大的辅助阅读字号及高对比度模式下让位于纯色底。
-
-发布用浅／深色透明资源在 `DesignSystem` 的 `Artwork.xcassets`。如修改源稿，在已安装 Pillow 和 NumPy 的 macOS 环境中运行 `python3 scripts/render-library-landscape.py` 重新导出；正常构建不需要 Python 依赖。
+以上装饰不拦截交互，不进入辅助朗读。
 
 ## 历史设计稿
 
-下列文档保留探索过程，不是正式资源：
+以下资源保留为探索记录，不属于现行品牌系统：
 
-- [原蓝紫「弦风」](tinytune-app-icon-xianfeng.svg)及[与「折叠旋律」的对照](tinytune-app-icon-xianfeng-preview.png)。
+- [原蓝紫「弦风」](tinytune-app-icon-xianfeng.svg)及[「折叠旋律」对照稿](tinytune-app-icon-xianfeng-preview.png)。
 - [青瓷绿](tinytune-brand-celadon-preview.png)、[暖竹青](tinytune-brand-warm-celadon-preview.png)、[薄荷青](tinytune-brand-mint-preview.png)、[杏笺与朱漆](tinytune-brand-paper-lacquer-preview.png)。
-- [蜜釉、桃陶、松笺、梅墨对照](tinytune-brand-four-palettes-preview.png)。其中松笺的配色被定稿采用。
-- [02「留白落梅」](tinytune-app-icon-xianfeng-plum-between.svg)：梅红小花落在琴头和笛口之间，已由 01「琴身嵌梅」取代。
+- [蜜釉、桃陶、松笺、梅墨对照](tinytune-brand-four-palettes-preview.png)，以及[梅花版本图标](tinytune-app-icon-xianfeng-plum-inlay.svg)。
+- `landscape/` 与 `Header-Light.svg`、`Page-Light.svg` 为旧山水插画设计稿，留作历史记录，不再作为当前 App 或 Workbench 的品牌装饰。
 
-历史图板里的「已接入」或「未接入」描述的是制作时的状态。
+历史图板里的“已接入／未接入”仅反映当时制作状态。

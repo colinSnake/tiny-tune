@@ -1,56 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Lyrics" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "歌词"
-          }
-        }
-      }
-    },
-    "Back to Current Line" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "回到当前句"
-          }
-        }
-      }
-    },
-    "Loading lyrics" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载歌词"
-          }
-        }
-      }
-    },
-    "No lyrics for this song" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这首歌没有歌词"
-          }
-        }
-      }
-    },
-    "Could not read lyrics" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法读取歌词"
-          }
-        }
-      }
-    },
     "%@ · %@" : {
       "localizations" : {
         "en" : {
@@ -81,6 +31,12 @@
 
     },
     "%@ music folders" : {
+
+    },
+    "%@ removed songs" : {
+
+    },
+    "%@ removed songs are still unavailable" : {
 
     },
     "%@ songs" : {
@@ -192,6 +148,16 @@
         }
       }
     },
+    "%lld missing songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 首歌曲缺失"
+          }
+        }
+      }
+    },
     "%lld music folders" : {
       "localizations" : {
         "en" : {
@@ -216,6 +182,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 个文件夹"
+          }
+        }
+      }
+    },
+    "%lld removed songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 首歌曲已移除"
+          }
+        }
+      }
+    },
+    "%lld removed songs are still unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍有 %lld 首已移除歌曲不可用"
           }
         }
       }
@@ -332,6 +318,16 @@
         }
       }
     },
+    "%lld unplayable songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 首歌曲不可播放"
+          }
+        }
+      }
+    },
     "%lld upcoming" : {
       "localizations" : {
         "zh-Hans" : {
@@ -347,17 +343,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关于曲笺"
-          }
-        }
-      }
-    },
-    "Add a folder of music. Your files stay where they are." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "添加一个存放音乐的文件夹，原文件会留在原处。"
+            "value" : "关于听页"
           }
         }
       }
@@ -393,6 +379,7 @@
       }
     },
     "Add to Library" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -453,6 +440,37 @@
         }
       }
     },
+    "Attach lyrics to this song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将歌词绑定到这首歌"
+          }
+        }
+      }
+    },
+    "Authorization needed" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要重新授权"
+          }
+        }
+      }
+    },
+    "Back to Current Line" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回到当前句"
+          }
+        }
+      }
+    },
     "Browse by" : {
       "localizations" : {
         "zh-Hans" : {
@@ -489,6 +507,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在检查音乐文件…"
+          }
+        }
+      }
+    },
+    "Choose a file with the .lrc extension." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择扩展名为 .lrc 的文件。"
           }
         }
       }
@@ -563,6 +591,17 @@
         }
       }
     },
+    "Connected" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已连接"
+          }
+        }
+      }
+    },
     "Could not be read" : {
       "localizations" : {
         "zh-Hans" : {
@@ -593,6 +632,16 @@
         }
       }
     },
+    "Could not open the lyrics file. Make sure it is available on this device." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法打开歌词文件。请确认文件已下载到此设备。"
+          }
+        }
+      }
+    },
     "Could not play" : {
       "localizations" : {
         "zh-Hans" : {
@@ -609,6 +658,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法播放这首歌。"
+          }
+        }
+      }
+    },
+    "Could not read lyrics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取歌词"
+          }
+        }
+      }
+    },
+    "Could not remove the imported copy." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法移除已导入的歌词。"
           }
         }
       }
@@ -633,6 +702,26 @@
         }
       }
     },
+    "Could not save the display names. No changes were applied." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存显示名称，未应用更改。"
+          }
+        }
+      }
+    },
+    "Could not save the imported lyrics. No lyrics were replaced." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存导入的歌词，原有歌词未被替换。"
+          }
+        }
+      }
+    },
     "Cycles playback mode" : {
       "localizations" : {
         "zh-Hans" : {
@@ -649,6 +738,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "损坏或不支持的音频"
+          }
+        }
+      }
+    },
+    "Deselect All" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消全选"
           }
         }
       }
@@ -676,6 +775,26 @@
         }
       }
     },
+    "Edit Display Names" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑显示名称"
+          }
+        }
+      }
+    },
+    "Edits only affect the music library. Leave a field blank to use its automatic name." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只修改音乐库里的显示名称，不改原文件。留空可使用自动识别的名称。"
+          }
+        }
+      }
+    },
     "Existing data has been preserved." : {
       "localizations" : {
         "zh-Hans" : {
@@ -692,6 +811,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法恢复文件夹访问。请在「来源」里重新授权原文件夹。"
+          }
+        }
+      }
+    },
+    "Give your favorite music a page of its own" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让喜欢的音乐，有一页自己的位置"
+          }
+        }
+      }
+    },
+    "Import" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入"
           }
         }
       }
@@ -727,12 +866,42 @@
         }
       }
     },
+    "Import Lyrics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入歌词"
+          }
+        }
+      }
+    },
+    "Import Lyrics…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入歌词…"
+          }
+        }
+      }
+    },
     "Import Music" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "导入音乐"
+          }
+        }
+      }
+    },
+    "Items to skip" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "个文件将跳过"
           }
         }
       }
@@ -757,12 +926,32 @@
         }
       }
     },
+    "Loading lyrics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载歌词"
+          }
+        }
+      }
+    },
     "Loading…" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在载入…"
+          }
+        }
+      }
+    },
+    "Local folder" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本机文件夹"
           }
         }
       }
@@ -783,6 +972,47 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本地音乐播放器"
+          }
+        }
+      }
+    },
+    "Local music, at your own pace." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地音乐，慢慢听。"
+          }
+        }
+      }
+    },
+    "Lyrics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歌词"
+          }
+        }
+      }
+    },
+    "Lyrics Options" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歌词选项"
+          }
+        }
+      }
+    },
+    "Lyrics Preview" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歌词预览"
           }
         }
       }
@@ -814,6 +1044,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "匹配路径：%lld · 未匹配路径：%lld"
+          }
+        }
+      }
+    },
+    "Missing" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺失"
+          }
+        }
+      }
+    },
+    "Missing songs leave the playback list. Rescan after returning the files to restore them." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺失歌曲会移出可播放列表。文件放回原处后，重新扫描即可恢复。"
           }
         }
       }
@@ -898,6 +1148,16 @@
         }
       }
     },
+    "No lyrics for this song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这首歌没有歌词"
+          }
+        }
+      }
+    },
     "No music sources" : {
       "localizations" : {
         "zh-Hans" : {
@@ -958,6 +1218,16 @@
         }
       }
     },
+    "None of the removed songs are currently available to restore." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已移除的歌曲目前都无法恢复。"
+          }
+        }
+      }
+    },
     "Not downloaded" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1010,6 +1280,26 @@
         }
       }
     },
+    "Only indexed on this device. Your music isn’t uploaded." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在此设备建立索引，不会上传你的音乐。"
+          }
+        }
+      }
+    },
+    "Only the imported copy will be removed. The .lrc beside the audio file is not changed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只移除导入的歌词副本，不会修改音频旁的同名 .lrc。"
+          }
+        }
+      }
+    },
     "Opening music library…" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1026,6 +1316,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开正在播放"
+          }
+        }
+      }
+    },
+    "Original files won’t be moved or modified." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原文件不会移动或修改。"
           }
         }
       }
@@ -1190,6 +1490,16 @@
         }
       }
     },
+    "Reload Lyrics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新读取歌词"
+          }
+        }
+      }
+    },
     "Remove" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1216,6 +1526,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "从队列移除"
+          }
+        }
+      }
+    },
+    "Remove Imported Lyrics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除导入的歌词"
+          }
+        }
+      }
+    },
+    "Remove Imported Lyrics?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除导入的歌词？"
           }
         }
       }
@@ -1292,6 +1622,69 @@
         }
       }
     },
+    "Restore %@ songs" : {
+
+    },
+    "Restore %lld songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复 %lld 首歌曲"
+          }
+        }
+      }
+    },
+    "Restore Automatic Names" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复自动名称"
+          }
+        }
+      }
+    },
+    "Restore Removed Songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复已移除曲目"
+          }
+        }
+      }
+    },
+    "Review complete. Confirm to add the songs to your library." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查完成，确认后将加入音乐库。"
+          }
+        }
+      }
+    },
+    "Save" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存"
+          }
+        }
+      }
+    },
+    "Save the .lrc file as UTF-8 and try again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请将 .lrc 文件保存为 UTF-8 编码后重试。"
+          }
+        }
+      }
+    },
     "Saving…" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1338,6 +1731,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜索音乐"
+          }
+        }
+      }
+    },
+    "Select All" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全选"
+          }
+        }
+      }
+    },
+    "Select the songs to add back. Other songs and original files will not change." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择要加回音乐库的歌曲。其他歌曲和原始文件不会改变。"
           }
         }
       }
@@ -1443,6 +1856,26 @@
         }
       }
     },
+    "Songs ready to import" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首歌曲可新增"
+          }
+        }
+      }
+    },
+    "Songs that cannot be decoded leave the playback list. Repair or replace the files and rescan to restore them." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法解码的歌曲会移出可播放列表。修复或替换文件后，重新扫描即可恢复。"
+          }
+        }
+      }
+    },
     "Sort By" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1483,6 +1916,46 @@
         }
       }
     },
+    "The .lrc file is larger than 1 MB." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ".lrc 文件超过 1 MB。"
+          }
+        }
+      }
+    },
+    "The folder changed after scanning. Cancel this preview and rescan." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件夹在扫描后有变化，请取消此预览并重新扫描。"
+          }
+        }
+      }
+    },
+    "The imported copy takes priority over the .lrc beside the audio file. The original files are not changed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入的歌词优先于音频旁的同名 .lrc，原文件不会改变。"
+          }
+        }
+      }
+    },
+    "This file does not contain any lyrics." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个文件没有可显示的歌词。"
+          }
+        }
+      }
+    },
     "This folder could not be read. Make sure it is available on this device." : {
       "localizations" : {
         "zh-Hans" : {
@@ -1499,6 +1972,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此文件夹与已有来源重叠。请重新扫描已有来源。"
+          }
+        }
+      }
+    },
+    "This replaces the previously imported copy. The original files are not changed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会替换先前导入的歌词副本，原文件不会改变。"
           }
         }
       }
@@ -1563,6 +2046,16 @@
         }
       }
     },
+    "Unplayable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不可播放"
+          }
+        }
+      }
+    },
     "Up Next" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1593,6 +2086,16 @@
         }
       }
     },
+    "View skipped reasons" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看跳过原因"
+          }
+        }
+      }
+    },
     "Volume" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1603,12 +2106,24 @@
         }
       }
     },
-    "Your folders are still listed in Sources." : {
+    "Your files stay where they are and are never uploaded." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已添加的文件夹仍保留，可前往来源查看。"
+            "value" : "文件保留原位，不会上传。"
+          }
+        }
+      }
+    },
+    "Your music stays on your device." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的音乐，始终留在自己的设备里。"
           }
         }
       }

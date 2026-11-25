@@ -292,12 +292,16 @@ iPhone 17 Pro Max／iOS 27.2.1，连接现有物理设备，通过 Device Hub �
 
 ## iPhone 时码歌词验收
 
+> 2026-11-24 行为变更：以下为历史待验收步骤；其中第 4、5 步对无歌词页按钮的要求已被替代。当前 iOS 无歌词只显示状态，不展示重新读取或导入按钮；有词或读取失败时的恢复流程另验。完整最新验证见文末追加修复记录。
+
 2026-11-21（Asia/Shanghai）。本轮准备了 `.build-output/Tinytune-Lyrics-Smoke.zip`（本地忽略目录），内含 3 首 19 秒合成音频和本轮工作台实际导出的 2 份 `.lrc`。已核对 ZIP 完整性、UTF-8 文件名、时码、纯文本和同名配对。`xcrun simctl list runtimes` 未列出运行时；`xcrun devicectl list devices --timeout 5` 列出的手机均不可用。**以下为待执行的 iPhone 运行验收，不是通过记录。**
 
 1. 准备安装了本次歌词代码的独立签名测试版。把 ZIP 复制到 iPhone，在「文件」中解压；在测试版选择解压得到的「Tinytune 歌词验收」**文件夹**，确认新增 3 首。无需导入个人曲库，也不要安装到正式版的容器。
-2. 播放「01 窗边的光」，打开「正在播放」并点引号气泡「歌词」。应随进度切换高亮；在歌词区域上下拖动后，「回到当前句」应出现，点击后能恢复跟随。
+2. 播放「01 窗边的光」，打开「正在播放」，在唱片页的歌词区点展开。应随进度切换高亮；在歌词区域上下拖动后，「回到当前句」应出现，点击后能恢复跟随。
 3. 暂停后点「不用赶往哪里」（10 秒），进度应跳到 `0:10` 并保持暂停；恢复播放应在约 12.4 秒高亮「把这一刻听完」。拖动播放进度至前 1 秒内，首句开始前不应高亮。
-4. 切换到「02 第二页」，应显示不带跳转的纯文本；再切到「03 无词」，应提示「这首歌没有歌词」，播放仍可继续。切换后不应残留上一首的歌词。退出并重开测试版，不重新选择文件夹，再打开有词曲目的歌词以确认来源授权保留。
+4. 切换到「02 第二页」，应显示不带跳转的纯文本；再切到「03 无词」，应提示「这首歌没有歌词」，播放仍可继续。切换后不应残留上一首的歌词。在「文件」中补放 `03 无词.lrc`，回到同一首歌的「正在播放」页并点「重新读取歌词」，确认无需切歌即可看到歌词。退出并重开测试版，不重新选择文件夹，再打开有词曲目的歌词以确认来源授权保留。
+
+5. 单曲导入：让播放停在「03 无词」，在歌词区点「导入歌词…」，从「文件」选择另一目录的 UTF-8 `.lrc`。先取消一次确认，验证未替换；再次选择，核对预览的音频路径和歌词后确认，验证不切歌即可显示、播放进度与队列不变。重启验证保存仍在；点歌词区「… → 移除导入的歌词」，应恢复步骤 4 补放的同名歌词。
 
 如本地验收包已清理，可从工作台「试用合成样例 → 匹配已选曲目 → 导出 ZIP」重新获取两份 `.lrc`。在 `tools/LyricsWorkbench` 安装依赖后运行下列命令重制 WAV；将导出的 `窗边的光.lrc`、`第二页.lrc` 分别加上 `01 `、`02 ` 前缀后放入生成目录，不给第三首放歌词文件。
 
@@ -313,3 +317,129 @@ node --import tsx --input-type=module -e '
   }
 '
 ```
+
+
+## 2026-11-24 iOS 播放、曲库与通屏背景追加修复
+
+本轮按追加需求修改 SwiftUI，未安装或覆盖手机中的个人曲库版，未创建提交或推送；保留工作区既有的其他修改。当前实现取代先前设计稿的顶部渐隐、左对齐标题和行内重扫，不改 macOS 对应交互。
+
+### 实现与只读目录核对
+
+- 正在播放：iPhone 唱盘和曲名居中，独立手机唱针几何；主控仅上一首／播放暂停／下一首，播放模式与队列以不同图标和文字另起一排。原来的近似列表图标分别是播放顺序和队列，并非两个上一首／下一首。无歌词仅显示状态；读取失败仍可恢复。
+- 浏览与搜索：iOS 只对同来源、同目录、同文件名基干／歌手且时长差不超过 0.2 秒的明确音质后缀副本作展示折叠，且副本元数据必须未被手改。不同来源、不同目录、不同录音、无标记格式副本保留；底层记录、旧队列、导入歌词与文件 ID 不改，macOS 默认不折叠。
+- 用户指定目录只读枚举出 59 个音频文件（56 MP3、3 FLAC）。其中同一录音有普通、高品、Hi-Res、无损四个文件，均约 240.879 秒；App 依据文件名解析歌手后归为同组，折叠三个有音质标记的副本，**实际投影为 56 首**。最初人工预期为 57，真实目录回归暴露漏数一个带歌手别名标签的无损版本；核对实际文件和解析规则后修正只读样本预期，并断言精确折叠路径，而非放宽生产逻辑。
+- 真实目录测试只读取调用者提供的 ffprobe JSON，不操作个人数据库。元数据报告与相对路径清单保存在本地忽略目录 `.build-output/ios-followup-audio-*.json`，未加入仓库。核对前后 59 个文件的 SHA-256、大小及修改时间，均不变。两份 FLAC 的额外 ffmpeg 抽查出现无效帧提示；未修改文件，此项不算音频完整性或真实播放验收。
+- 曲库歌手／专辑／歌曲切换只重建对应滚动容器，保留排序与详情导航；iOS 外层使用非惰性容器，子列表仍按原有结构。
+- 音乐库／搜索／来源共用完整日夜山水，等比填充裁切；正在播放使用低对比度夜景。音乐库与来源标题居中。来源卡片移除文件夹图标、已连接状态、行内重扫和页尾原文件／上传说明，保留更多菜单与授权异常提示。
+
+### 本轮执行结果
+
+每次编译前均检查没有活动构建进程，并定向清理对应 `.build-output` 目标的上一轮产物与编译缓存；不清其他任务或用户数据，不使用 `git clean -fdx`。以下为本次代码的结果，非历史验证复用：
+
+```sh
+TINYTUNE_AUDIO_METADATA_REPORT="$PWD/.build-output/ios-followup-audio-metadata.json"   swift test --package-path packages/TinytuneKit --scratch-path .build-output/SwiftPackage
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_ios_landscape_design.py'
+xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator CODE_SIGNING_ALLOWED=NO build
+xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS' -derivedDataPath .build-output/iPhoneOS CODE_SIGNING_ALLOWED=NO build
+xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-macOS -destination 'platform=macOS,arch=arm64' -derivedDataPath .build-output/macOS build
+git diff --check
+```
+
+- **通过：98 个 XCTest，0 失败、0 跳过**（Domain 28、Library 37、DesignSystem 19、Playback 14）；本轮包含启用真实目录报告的精确路径与 56 首投影断言。平时未提供报告时该只读 QA 用例明确跳过，不依赖开发者音频目录。
+- **通过：11 项 Python 结构／资源检查**；音质后缀、视图返回值、整图等比布局和来源图标的回归问题均先观察失败再修正。结构检查不是原生 UI 手势验收。
+- **通过：iOS Simulator、无签名 iPhoneOS、macOS 三目标清洁构建**。macOS 仍有既有音量滑杆 `doubleValue` actor 隔离警告；三目标均有未依赖 AppIntents 的 metadata extraction skipped 提示，本轮未将这些提示当作无警告通过。
+- **通过：资源打包复核**。`assetutil --info` 确认实际 Simulator 构建包包含 `LibraryLandscape-Page` 浅／深两张 1170 × 2532、3× 资源；透明度及 SVG 画幅由结构检查验证。已审阅的是插画合成预览，不冒充原生 App 截图。
+- **通过：`git diff --check`**。日志保存为 `.build-output/ios-followup-{tests,structure,simulator,device,macos}.log`；本轮复用固定输出目录，结束时占用约 SwiftPackage 223M、iOSSimulator 438M、iPhoneOS 228M、macOS 282M，没有新建每轮验证目录。
+
+### 未执行的原生运行验收
+
+`xcrun simctl list runtimes` 本轮仍为空；最后一次 `devicectl` 列出一台 paired / available iPhone 和一台 unavailable iPhone。为避免覆盖个人 App 与曲库，本轮**没有安装、启动或操作手机 App**，也没有模拟器运行。以下仍待独立签名 QA 环境验收，不能由测试和编译代替：
+
+- 有／无歌词和读取失败切换、唱针落点与唱盘视觉居中、实际播放和队列。
+- 长歌手／专辑／歌曲列表滚到底后连续切换；详情返回与搜索输入切换。
+- 刘海及底部安全区的全页插画、浅深色、横屏、VoiceOver、Dynamic Type 与减少动态效果。
+- 来源更多菜单、异常重连、弹窗手势与内容高度。
+
+
+## 2026-11-24 来源授权提示进一步精简
+
+- 按后续要求，iOS 来源卡片移除「需要重新授权」状态提示，不显示行内重新连接；重新连接／重新选择文件夹只保留在更多菜单。macOS 原有警告和操作不变。
+- 原生 SwiftUI 和设计预览中「周末收藏」卡片同步修改，不更改来源授权、扫描或重连业务。
+- 本次先新增回归并观察到失败，再移除提示；`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_ios_landscape_design.py'`：12 项通过。断言覆盖原生／预览卡片不显示提示与行内重连，两个更多菜单均保留重新选择文件夹。
+- 从预览 HTML 提取脚本后执行 `node --check .build-output/ios-source-menu-preview.js`，通过；`git diff --check` 通过。
+- 确认无活动构建后定向清理 `.build-output/iOSSimulator` 上轮产物与缓存，再运行 `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator CODE_SIGNING_ALLOWED=NO build`：通过。固定目录约 438M；日志为 `.build-output/ios-source-menu-{structure,simulator}.log`。
+- 本次未重跑 Swift 包测试、iPhoneOS 或 macOS 构建，未安装运行手机、未做浏览器视觉验收，未提交或推送；先前 98 项包测试与三目标构建不冒充本次结果。
+
+
+## 2026-11-24 根页面标题与搜索对齐
+
+- 音乐库与来源改为与搜索相同的原生 `.navigationTitle` 和 `.navigationBarTitleDisplayMode(.inline)`，去掉内容区的大标题及隐藏导航栏设置，不用固定坐标模拟位置。数量摘要保留为居中的内容区副标题，新增在导航栏右侧，来源关于在左侧；继续隐藏装饰性工具栏底板并保留 44 pt 热区。
+- 本次运行 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_ios_landscape_design.py'`：12 项通过，检查三页均使用 inline 导航标题、透明导航背景及完整山水。
+- 确认无活动构建并定向清理 `.build-output/iOSSimulator` 后，执行 `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator CODE_SIGNING_ALLOWED=NO build`：通过。日志为 `.build-output/ios-inline-titles-{structure,simulator}.log`。
+- `git diff --check` 通过。未安装或启动手机 App、未做原生截图／手势验收；本次未重跑 Swift 包测试、iPhoneOS 或 macOS 构建，不复用历史结果冒充本次通过。未提交或推送。
+
+
+## 2026-11-24 移除 iOS 来源关于入口和底部弹窗
+
+- 删除来源左上角关于图标、`showsAbout` 状态、对应 sheet 和未再使用的 iOS `AboutTinytuneView`。音乐库和来源的新增文件夹、来源更多菜单、播放器及队列弹窗保留，macOS 设置不改。交互预览同步移除入口及关于跳转；历史关于图板仅作旧稿。
+- 先运行新增回归观察失败，再修改；`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_ios_landscape_design.py'`：14 项通过。覆盖关于按钮／状态／视图移除、原有新增入口和播放器／队列弹窗保留。
+- `node --check .build-output/ios-remove-about-preview.js` 与 `git diff --check` 通过。
+- 初次清理检测到活动构建即停止，未删除其目录；确认该构建结束后，定向清理 `.build-output/iOSSimulator` 的旧产物与编译缓存，再运行 `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator CODE_SIGNING_ALLOWED=NO build`：通过。日志为 `.build-output/ios-remove-about-{structure,simulator}.log`，继续使用固定产物目录。
+- 本次未运行 iPhoneOS／macOS 构建、Swift 包测试或手机／浏览器 UI 验收，未安装手机 App；未提交或推送。不将历史构建或测试结果当作本次结果。
+
+
+## 2026-11-24 iOS 播放模式与队列改为同排纯图标
+
+- 本轮按追加要求取代此前的带文案第二排，iOS 正在播放页依次显示播放模式／上一曲／播放暂停／下一曲／队列。顺序播放使用 `arrow.right`，队列使用 `music.note.list`，外侧四个图标统一 22 pt；按钮仍保留至少 44×44 pt 点击区、VoiceOver 标签及播放模式值。队列回调和播放模式切换逻辑不变，macOS 与迷你播放器维持原样。
+- 新增结构回归先观察失败，再落实修改；本轮 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_ios_landscape_design.py'`：15 项通过，日志 `.build-output/ios-transport-icons-structure.log`。
+- `python3 /tmp/tinytune-followup-clean.py iOSSimulator` 确认无活动构建并定向清理旧产物和编译缓存后，运行 `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator CODE_SIGNING_ALLOWED=NO build`：通过，退出码 0；日志 `.build-output/ios-transport-icons-simulator.log`。
+- `git diff --check` 通过。仅完成结构检查和模拟器目标编译，未启动模拟器或进行原生 UI／真机验收，未安装手机 App。本轮未执行 Swift 包测试、iPhoneOS 或 macOS 构建；未提交、未推送，不将先前结果计入本轮。
+
+
+## 2026-11-24 双端大封面、五行歌词与底部固定播放区
+
+- 根据手机截图调整原生 SwiftUI：iOS 封面半径 71→92，macOS 79→99，均约占唱片直径 68%；唱盘与唱针大小不变，并通过几何回归确认唱针仍在封面外、唱片内。
+- 正在播放页歌词直接展示最多五行居中上下文，当前句高亮，拖动预览与减少动态效果保留。补足曲首／曲尾窗口；间奏仅展示未来歌词，末尾空白不残留已唱行。移除 inline 歌词的展开、收起和导入菜单图标，独立歌词面板的管理能力不删。无歌词双端均只显示状态，读取失败仍可重试。
+- 进度条和播放主控移入独立 `.safeAreaInset(edge: .bottom)`，不受歌词加载、有无及上方内容滚动影响；歌曲信息使用剩余视口高度靠底部，短屏／大字号仍能滚动查看。无歌词与无当前曲目同样保留底部播放区。双端顺序播放统一为 `list.number`，iOS 保留纯图标单排与 22 pt 大小、至少 44 pt 热区。
+- 回归先红后绿：新增 5 项布局结构检查先全数失败；共享封面比例测试先报告两端比例不足。修改后 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_now_playing_layout.py'`（5 项）及 `-p 'test_ios_landscape_design.py'`（15 项）通过。新增歌词窗口、曲首曲尾、间奏和短歌词行为测试。
+- 确认无活动编译并在每个目标编译前分别运行 `python3 /tmp/tinytune-followup-clean.py SwiftPackage`、`iOSSimulator`、`macOS`，定向清理对应上轮产物和编译缓存。随后运行 `swift test --package-path packages/TinytuneKit --scratch-path .build-output/SwiftPackage`：102 项用例，0 失败，1 项真实目录环境测试按既有条件跳过；日志 `.build-output/now-playing-presentation-tests.log`。
+- 两次 `xcodebuild -workspace tinytune.xcworkspace` 分别使用 `-scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator` 和 `-scheme Tinytune-macOS -destination 'platform=macOS' -derivedDataPath .build-output/macOS`，均追加 `CODE_SIGNING_ALLOWED=NO build`：均通过、退出码 0。日志 `.build-output/now-playing-layout-{ios,macos}.log`。
+- `git diff --check` 通过。没有重启正在运行的 Mac App，也未安装手机 App、启动模拟器或进行原生截图／真机视觉验收；未执行本轮 iPhoneOS 设备构建。保留其他未提交修改，未创建提交、未推送；历史结果不计入本轮验证。
+
+
+## iOS 正在播放间距与点按进度条跟进验证
+
+- 本轮仅调整 iOS：竖向布局将弹性空白从唱盘和歌曲信息之间移至歌词下方，唱盘到歌曲信息间距为 12 pt，歌词上方额外留白为 6 pt；有词、无词均保留原有底部安全区固定进度条和主控。macOS 布局不改。
+- iOS 原生进度条增加点按识别，按滑块首尾实际中心计算跳转时间，覆盖边界钳制、RTL 和非零值域；复用现有 valueChanged 提交、当前曲目 ID 校验和 seek 能力检查，不调用播放／暂停切换。原有拖动预览、松手提交和取消预览保留。
+- 结构回归先红后绿：新增的布局与点击轨道检查修改前失败；修改后运行 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_now_playing_layout.py'`（7 项）及 `-p 'test_ios_landscape_design.py'`（15 项），共 22 项通过。日志 `.build-output/ios-player-spacing-seek-{red,structure,ios-regression}.log`。
+- 确认无活动构建后，分别运行 `python3 /tmp/tinytune-followup-clean.py SwiftPackage` 与 `python3 /tmp/tinytune-followup-clean.py iOSSimulator`，定向清理对应上一轮产物和编译缓存，再依次执行对应测试／构建。
+- `swift test --package-path packages/TinytuneKit --scratch-path .build-output/SwiftPackage`：四个测试套件合计 113 项，0 失败，1 项真实目录环境测试按既有条件跳过。包含新增的 7 项点按映射测试，以及真实音频 seek 后保持播放／暂停意图的回归测试。日志 `.build-output/ios-player-spacing-seek-tests.log`。
+- `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator CODE_SIGNING_ALLOWED=NO build`：`BUILD SUCCEEDED`，退出码 0；日志 `.build-output/ios-player-spacing-seek-simulator.log`。
+- `git diff --check` 通过。固定构建目录最终占用约 SwiftPackage 224 MB、iOSSimulator 437 MB，未另建重复编译目录。未安装手机 App、未启动模拟器、未进行原生截图或真机触控验收；本轮未执行 iPhoneOS 或 macOS 构建，未重启正在运行的 Mac App。保留其他未提交修改，未创建提交、未推送。
+
+## 2026-11-25 · 听页品牌改造验收
+
+- **Swift Package**：第一次全套 `swift test --package-path packages/TinytuneKit --scratch-path .build-output/TinytuneKit` 暴露出歌曲行占位图测试仍断言旧绿主题，并只允许亮底深字，导致深色模式的新紫灰底／浅紫图标断言失败（3 项）。将测试期望更新为当前浅／深主题色，并按两种明暗方向计算对比度后，清理固定目录并重跑：26 项通过，0 失败，0 跳过。日志：`.build-output/tingye-swift-tests.log`。
+- **iOS Simulator**：清理 `.build-output/iOSSimulator` 后执行 `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator CODE_SIGNING_ALLOWED=NO build`，`BUILD SUCCEEDED`。日志：`.build-output/tingye-ios-simulator.log`。
+- **macOS**：清理 `.build-output/macOS` 后执行 `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-macOS -destination 'platform=macOS' -derivedDataPath .build-output/macOS CODE_SIGNING_ALLOWED=NO build`，`BUILD SUCCEEDED`。日志：`.build-output/tingye-macos.log`。Xcode 的 App Intents 元数据跳过提示是因 target 未依赖 `AppIntents.framework`，非构建失败。
+- **LyricsWorkbench**：`pnpm test` 109 项通过、0 失败、0 跳过；`pnpm typecheck` 通过；先清理固定 `tools/LyricsWorkbench/dist` 后 `pnpm build` 通过。构建保留一条既有的本机私有字体 `/local-assets/ruantang.ttf` 解析提示，字体由本机运行环境提供，不随项目打包。记录位于 `.build-output/tingye-workbench-{tests,typecheck,build}.log`。
+- **品牌资源**：资产清单 JSON 与当前 SVG 均可解析；iOS 图标为 1024 × 1024 不透明 PNG，macOS 各尺寸图标保留透明背景。Logo、空态与唱片插画均使用新源稿；空库设计图中已去掉添加按钮上下的辅助文案，播放设计图可见唱针且唱头落在外圈沟槽。
+- **视觉复核**：本地 LyricsWorkbench 生产构建以 Playwright 检视 1280 × 720 与 390 × 844 视口；两端均加载「听页」标志，页面横向溢出检查为 false。iOS 三页设计稿已重新导出，overview 在 `~/.codex/visualizations/2026/11/25/tingye-ios-design/tingye-ios-design-overview.jpg`。**未启动 iOS Simulator 或 macOS App 做运行时截图验收，未做真机验收；本次为设计稿检查与双端构建验证。**
+- **收尾**：`git diff --check` 通过；没有创建提交或推送。保留 `.build-output` 中固定目录的本轮验证产物，没有创建新的重复构建目录。
+
+## 2026-11-25 · 听页唱针与 macOS 主内容插画复刻
+
+- 唱臂沿批准稿使用磨砂银曲线、小轴座和楔形唱头，iOS/macOS 共享轮廓，针尖位于封面外的黑胶沟槽。保留现有真实封面比例和 iOS 页面背景。
+- macOS 接入浅、深两张原稿插画。独立 QA App（`org.tinytune.player.designqa.20261125`）实际运行：确认 1120 × 720 浅色空曲库和显式对该进程应用 `DarkAqua` 后的五首合成歌曲列表、搜索结果和来源页；另在浅色实拍歌手、专辑详情页，确认内容卡片不会透出插画。合成索引的来源未授权，截图保留了原有的状态提示；未用正式曲库。系统原生工具栏及真实列表状态不做像素等同比较。构建包确认包含浅／深插画及侧栏标志的 1×／2× 资源。隔离执行 Logo 导出脚本，确认三个倍率的标志与目前资源的 RGBA 像素完全一致。
+- 分别清理固定 `.build-output/TinytuneKit`、`.build-output/macOS`、`.build-output/iOSSimulator` 的旧产物及编译缓存后执行验证。`swift test --package-path packages/TinytuneKit --scratch-path .build-output/TinytuneKit --jobs 4` 共 118 项，117 项通过、1 项无真实音频目录配置跳过、0 失败。`xcodebuild -workspace tinytune.xcworkspace` 分别使用 `-scheme Tinytune-macOS -destination platform=macOS -derivedDataPath .build-output/macOS` 和 `-scheme Tinytune-iOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator`，并追加 `-jobs 5 CODE_SIGNING_ALLOWED=NO build`，均 `BUILD SUCCEEDED`。日志：`.build-output/tingye-replica-{swift-tests,macos,ios}.log`。
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests`：28 项结构／资源检查通过。新增 macOS 详情背景与 iOS 空库保留背景的两个回归检查均先失败再通过；日志 `.build-output/tingye-replica-structure.log`。
+- 当前本机 `xcrun simctl list -j runtimes` 返回空列表。唱针另用生产组件的手机几何在 macOS `ImageRenderer` 中渲染并目视检查；不是 iOS 整页截图。未执行 iPhoneOS 构建、模拟器运行或实体 iPhone 验收。
+- 本机截图位于 `~/.codex/visualizations/2026/11/25/tingye-implementation-review/`：`macos-light.png`、`macos-dark-populated.png`、`macos-search.png`、`macos-sources.png`、`macos-artist-detail.png`、`macos-album-detail.png`、`ios-phone-record-component.png`。未提交或推送。
+
+## 2026-11-25 · iOS「耳边折页」背景接入
+
+- 曲库、搜索、来源三个根页面共用右下角固定插画层，替换其旧通屏插画；空曲库移除叠加的旧插画层，保留徽记和添加按钮。空库以批准的 `0.87` 不透明度展示，浏览态降至 `0.59`。资产随系统明暗切换，短视口按比例收小，增强对比度和辅助大字隐藏装饰。正在播放页及其原有背景、唱针和封面保持不变。
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests`：30 项通过。Swift 包定向清理 `.build-output/TinytuneKit` 后执行 `swift test --package-path packages/TinytuneKit --scratch-path .build-output/TinytuneKit --jobs 4`：120 项执行，119 项通过，1 项因未设置实际音乐目录报告而跳过，0 失败。另确认源 SVG 和透明 PNG 与批准稿的素材逐字节相同。
+- iOS 两目标分别定向清理上轮输出后，运行 `xcodebuild -workspace tinytune.xcworkspace -scheme Tinytune-iOS -jobs 4 CODE_SIGNING_ALLOWED=NO`，分别使用 `-destination 'generic/platform=iOS' -derivedDataPath .build-output/iPhoneOS build` 与 `-destination 'generic/platform=iOS Simulator' -derivedDataPath .build-output/iOSSimulator build`，均 `BUILD SUCCEEDED`。用 `xcrun assetutil --info` 确认两个构建包都包含正常和 `UIAppearanceDark` 两个 1170 × 672 透明变体。
+- 用 macOS `ImageRenderer` 核对生产 SwiftUI 背景组件的浅色空库、深色浏览、短视口及辅助大字；像素检查确认辅助大字画面不含插画。证据位于 `~/.codex/visualizations/2026/11/25/tingye-ios-background-implementation/`，`earfold-component-review.png` 为底部区域对照。当前 `xcrun simctl list -j runtimes` 返回空列表；未运行 iOS 模拟器或真机，未做整页运行验收，未安装 App。
+- 日志与资产清单位于 `.build-output/tingye-iphone-earfold-*`。未执行 macOS App 或 Web 构建，本次未提交或推送。

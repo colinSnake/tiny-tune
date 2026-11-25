@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">听页 · 折光笺</title>
+  <desc id="desc">由折页形成的音乐符号，以鸢尾紫到玫瑰粉渐变呈现。</desc>
+  <defs>
+    <linearGradient id="page" x1="214" y1="768" x2="818" y2="252" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8367F4"/>
+      <stop offset="0.56" stop-color="#B36DE0"/>
+      <stop offset="1" stop-color="#ED83B5"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="254" y1="256" x2="733" y2="404" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8367F4"/>
+      <stop offset="0.62" stop-color="#C575D1"/>
+      <stop offset="1" stop-color="#ED83B5"/>
+    </linearGradient>
+    <linearGradient id="crease" x1="273" y1="284" x2="583" y2="375" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6E9FF" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#FFF6FC" stop-opacity="0.12"/>
+    </linearGradient>
+    <path id="silhouette" d="M281 223 685 209Q711 207 728 228L809 328Q826 348 817 374L685 735Q677 759 652 764L318 814Q289 818 279 790L207 590Q201 573 205 555L257 250Q261 226 281 223Z"/>
+    <path id="note" d="M575 365 680 428 590 402 535 616C528 647 504 670 474 674 447 678 423 662 418 638 412 612 431 585 459 576 477 570 496 572 512 582L556 397Z"/>
+    <mask id="note-cutout" maskUnits="userSpaceOnUse" x="180" y="180" width="680" height="660">
+      <rect x="0" y="0" width="1024" height="1024" fill="white"/>
+      <use href="#note" fill="black"/>
+    </mask>
+  </defs>
+  <g id="mark" mask="url(#note-cutout)">
+    <use href="#silhouette" fill="url(#page)"/>
+    <path d="M281 223 685 209Q711 207 728 228L809 328Q826 348 817 374L685 429 575 365 257 286 257 250Q261 226 281 223Z" fill="url(#fold)"/>
+    <path d="M257 286C365 312 474 343 575 365L685 429" fill="none" stroke="url(#crease)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M684 429 735 405" fill="none" stroke="#F8F3FF" stroke-opacity="0.24" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

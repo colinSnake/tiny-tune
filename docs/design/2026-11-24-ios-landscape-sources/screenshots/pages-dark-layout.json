@@ -1,0 +1,22 @@
+{
+  "brokenImages": [],
+  "devices": [
+    {
+      "height": 860,
+      "width": 406,
+      "x": 71,
+      "y": 267.1875
+    },
+    {
+      "height": 860,
+      "width": 406,
+      "x": 71,
+      "y": 1191.1875
+    }
+  ],
+  "overflow": false,
+  "viewport": {
+    "height": 682,
+    "width": 563
+  }
+}

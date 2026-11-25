@@ -50,12 +50,18 @@ public struct LyricsDocument: Equatable, Sendable {
     }
 
     public func index(at seconds: Double) -> Int? {
+        guard let index = cueIndex(at: seconds), !cues[index].lines.isEmpty else { return nil }
+        return index
+    }
+
+    /// The current timeline cue, including empty cues marking instrumental gaps.
+    public func cueIndex(at seconds: Double) -> Int? {
         guard seconds.isFinite, seconds >= 0 else { return nil }
         var low = 0, high = cues.count
         while low < high {
             let mid = low + (high - low) / 2
             if cues[mid].seconds <= seconds { low = mid + 1 } else { high = mid }
         }
-        return low > 0 && !cues[low - 1].lines.isEmpty ? low - 1 : nil
+        return low > 0 ? low - 1 : nil
     }
 }

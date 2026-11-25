@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AC3295CD111A4DD5B65A8859 /* PhoneActionPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D039B6C9481491F994E1425 /* PhoneActionPopover.swift */; };
 		013585F79C97D6E65F640538 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298FAB80C5BC0B6C9A66BA37 /* AppState.swift */; };
 		0494C3E0859763A5DCE12199 /* LibraryIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 612DAF57498F10E3ECFB0531 /* LibraryIndex.swift */; };
 		11CB1ADB41EC95D459533991 /* Playback in Frameworks */ = {isa = PBXBuildFile; productRef = 682EF63E4B55BBFECE99B2AC /* Playback */; };
@@ -36,10 +37,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		39D9EE064F7B4EC2B844F039 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		5D039B6C9481491F994E1425 /* PhoneActionPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneActionPopover.swift; sourceTree = "<group>"; };
 		0D994C10E2D59C4D84AC24D2 /* Tinytune.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Tinytune.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		298FAB80C5BC0B6C9A66BA37 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
-		4F26EC11087B944586761267 /* Tinytune.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Tinytune.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		39D9EE064F7B4EC2B844F039 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		4F26EC11087B944586761267 /* 听页.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = "听页.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		50C578EAD4CA4E643C697277 /* TinytuneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TinytuneApp.swift; sourceTree = "<group>"; };
 		5A9425F45FD5D8984C34E316 /* Tinytune.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Tinytune.entitlements; sourceTree = "<group>"; };
 		612DAF57498F10E3ECFB0531 /* LibraryIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIndex.swift; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 				298FAB80C5BC0B6C9A66BA37 /* AppState.swift */,
 				FA4EE3AD012E78D25348317C /* CatalogViews.swift */,
 				612DAF57498F10E3ECFB0531 /* LibraryIndex.swift */,
+				5D039B6C9481491F994E1425 /* PhoneActionPopover.swift */,
 				C14BABEFE8E1F57E36C74613 /* PlayerViews.swift */,
 				A27F43C25D759528DF0311D9 /* SourceViews.swift */,
 				50C578EAD4CA4E643C697277 /* TinytuneApp.swift */,
@@ -125,7 +128,7 @@
 			isa = PBXGroup;
 			children = (
 				0D994C10E2D59C4D84AC24D2 /* Tinytune.app */,
-				4F26EC11087B944586761267 /* Tinytune.app */,
+				4F26EC11087B944586761267 /* 听页.app */,
 			);
 			sourceTree = "<group>";
 		};
@@ -152,7 +155,7 @@
 				113DBF479654D4FCFE209D6B /* DesignSystem */,
 			);
 			productName = Tinytune;
-			productReference = 4F26EC11087B944586761267 /* Tinytune.app */;
+			productReference = 4F26EC11087B944586761267 /* 听页.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A0D1D88EA4EC1A957CC0B900 /* Tinytune-iOS */ = {
@@ -253,6 +256,7 @@
 				368B88133339488FB059F6F5 /* AppState.swift in Sources */,
 				3B12EF18C4086B6AF260C85B /* CatalogViews.swift in Sources */,
 				65FC52BA80CB4F8BB7899F35 /* LibraryIndex.swift in Sources */,
+				AC3295CD111A4DD5B65A8859 /* PhoneActionPopover.swift in Sources */,
 				85B9C4543A31B3D766206FF0 /* PlayerViews.swift in Sources */,
 				AAC6309F74E8E90430A4F4B7 /* SourceViews.swift in Sources */,
 				20E132E9AD0CD1934A31209D /* TinytuneApp.swift in Sources */,
@@ -274,7 +278,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_NAME)";
+				INFOPLIST_KEY_CFBundleDisplayName = "听页";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -285,6 +289,7 @@
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				WRAPPER_NAME = "听页.$(WRAPPER_EXTENSION)";
 			};
 			name = Release;
 		};
@@ -316,7 +321,7 @@
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iOS/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "曲笺";
+				INFOPLIST_KEY_CFBundleDisplayName = "听页";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
@@ -361,7 +366,7 @@
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_NAME)";
+				INFOPLIST_KEY_CFBundleDisplayName = "听页";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -374,6 +379,7 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				TINYTUNE_MACOS_BUNDLE_IDENTIFIER = org.tinytune.player;
+				WRAPPER_NAME = "听页.$(WRAPPER_EXTENSION)";
 			};
 			name = Debug;
 		};
@@ -388,7 +394,7 @@
 				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iOS/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "曲笺";
+				INFOPLIST_KEY_CFBundleDisplayName = "听页";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;

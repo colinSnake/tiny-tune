@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Export the original ink layers for the app. Requires macOS sips, NumPy and Pillow."""
 
+import argparse
 import json
 from pathlib import Path
 import subprocess
@@ -48,10 +49,15 @@ def export(raw, dest, logical_size, portrait):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--composition", choices=["Horizontal", "Portrait", "Header", "Page"])
+    args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="tinytune-artwork-") as temp:
         rendered = Path(temp) / "raw.png"
-        for composition, size in (("Horizontal", (927, 412)), ("Portrait", (402, 196))):
-            portrait = composition == "Portrait"
+        for composition, size in (("Horizontal", (927, 412)), ("Portrait", (402, 196)), ("Header", (390, 300)), ("Page", (390, 844))):
+            if args.composition and args.composition != composition:
+                continue
+            portrait = composition != "Horizontal"
             target = CATALOG / f"LibraryLandscape-{composition}.imageset"
             target.mkdir(exist_ok=True)
             images = []
@@ -60,7 +66,12 @@ def main():
                 subprocess.run(["sips", "-s", "format", "png", str(SOURCE / f"{name}.svg"),
                                 "--out", str(rendered)], check=True, stdout=subprocess.DEVNULL)
                 file = f"{name}.png"
-                export(rendered, target / file, size, portrait)
+                if composition in {"Header", "Page"}:
+                    # The native header and page SVGs own their opacity and transparent fade.
+                    with Image.open(rendered) as image:
+                        image.convert("RGBA").save(target / file, optimize=True)
+                else:
+                    export(rendered, target / file, size, portrait)
                 entry = {"filename": file, "idiom": "universal", "scale": "3x" if portrait else "2x"}
                 if appearance == "Dark":
                     entry["appearances"] = [{"appearance": "luminosity", "value": "dark"}]

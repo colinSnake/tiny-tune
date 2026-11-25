@@ -124,6 +124,7 @@ public struct PlaybackQueue: Codable, Equatable, Sendable {
         private var offset = 0
         private var wrapped: [UUID]?
         private var attempted = Set<UUID>()
+        private var removed = Set<UUID>()
         private var selection: (UUID, Destination)?
 
         private enum Destination {
@@ -136,6 +137,13 @@ public struct PlaybackQueue: Codable, Equatable, Sendable {
             self.mode = mode
         }
 
+        package var selectedID: UUID? { selection?.0 }
+
+        package mutating func removeTracks(_ ids: Set<UUID>) {
+            // Keep cursor offsets anchored to the original queue until a candidate commits.
+            removed.formUnion(ids)
+        }
+
         package mutating func next() -> UUID? {
             var rng = SystemRandomNumberGenerator()
             return next(using: &rng)
@@ -145,7 +153,7 @@ public struct PlaybackQueue: Codable, Equatable, Sendable {
             selection = nil
             while let candidate = candidate(using: &rng) {
                 offset += 1
-                guard attempted.insert(candidate.0).inserted else { continue }
+                guard !removed.contains(candidate.0), attempted.insert(candidate.0).inserted else { continue }
                 if direction == .previous, candidate.0 == source.current { continue }
                 selection = candidate
                 return candidate.0
@@ -173,25 +181,27 @@ public struct PlaybackQueue: Codable, Equatable, Sendable {
         }
 
         package func selectedQueue() -> PlaybackQueue? {
-            guard let (id, destination) = selection else { return nil }
+            guard let (id, destination) = selection, !removed.contains(id) else { return nil }
             var result = source
             switch destination {
-            case .current: return result
+            case .current: break
             case .history(let index):
                 result.history.removeLast(result.history.count - index)
                 if let current = source.current { result.replay.append(current) }
                 result.current = id
-                return result
             case .replay(let index):
                 result.replay.removeLast(result.replay.count - index)
+                result.select(id)
             case .pending(let index):
                 result.replay = []
                 result.pending.removeFirst(index + 1)
+                result.select(id)
             case .wrapped(let index):
                 result.replay = []
                 result.pending = Array((wrapped ?? []).dropFirst(index + 1))
+                result.select(id)
             }
-            result.select(id)
+            result.removeTracks(removed)
             return result
         }
     }

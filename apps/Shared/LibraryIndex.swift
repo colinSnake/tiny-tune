@@ -3,8 +3,8 @@ import Foundation
 import Library
 
 extension Track {
-    var subtitle: String {
-        [metadata.artist ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale), metadata.album].compactMap { $0 }.joined(separator: " · ")
+    var displayArtist: String {
+        metadata.artist ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale)
     }
     var artwork: URL? { artworkKey.flatMap(ArtworkCache.url(for:)) }
 }

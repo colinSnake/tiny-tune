@@ -2,19 +2,19 @@
   "sourceLanguage" : "en",
   "strings" : {
     "CFBundleDisplayName" : {
-      "comment" : "User-visible app name on all platforms; the project and built product retain the name Tinytune.",
+      "comment" : "User-visible app name on all platforms.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "曲笺"
+            "value" : "听页"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "曲笺"
+            "value" : "听页"
           }
         }
       }
@@ -26,13 +26,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "曲笺"
+            "value" : "听页"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "曲笺"
+            "value" : "听页"
           }
         }
       }

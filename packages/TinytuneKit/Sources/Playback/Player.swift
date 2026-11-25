@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreGraphics
 import Domain
 import Foundation
 import MediaPlayer
@@ -21,6 +22,7 @@ public enum PlaybackMode: Sendable { case sequential, repeatOne, shuffle }
 @Observable @MainActor
 public final class Player {
     public typealias Resolver = @Sendable (Track) async throws -> PlayableResource
+    public typealias ArtworkURLResolver = @Sendable (Track) -> URL?
     public private(set) var phase: PlaybackPhase = .idle
     public private(set) var position: Double = 0
     public private(set) var duration: Double = 0
@@ -37,6 +39,8 @@ public final class Player {
     private var queue = PlaybackQueue()
     @ObservationIgnored private var tracks: [UUID: Track] = [:]
     @ObservationIgnored private var resolver: Resolver?
+    @ObservationIgnored private let artworkURL: ArtworkURLResolver
+    @ObservationIgnored private let systemArtwork: SystemPlaybackArtwork
     @ObservationIgnored private var opened: PlayableResource?
     @ObservationIgnored private var status: NSKeyValueObservation?
     @ObservationIgnored private var end: NSObjectProtocol?
@@ -61,9 +65,17 @@ public final class Player {
     @ObservationIgnored private var remoteTargets: [(MPRemoteCommand, Any)] = []
     @ObservationIgnored private var sessionObservers: [NSObjectProtocol] = []
 
-    public convenience init() { self.init(snapshotStore: .local) }
+    public convenience init(artworkURL: @escaping ArtworkURLResolver = { _ in nil },
+                            fallbackArtwork: @escaping @MainActor () -> CGImage? = { nil }) {
+        self.init(snapshotStore: .local, artworkURL: artworkURL, fallbackArtwork: fallbackArtwork)
+    }
 
-    init(snapshotStore: PlaybackSnapshotStore) { self.snapshotStore = snapshotStore }
+    init(snapshotStore: PlaybackSnapshotStore, artworkURL: @escaping ArtworkURLResolver = { _ in nil },
+         fallbackArtwork: @escaping @MainActor () -> CGImage? = { nil }) {
+        self.snapshotStore = snapshotStore
+        self.artworkURL = artworkURL
+        systemArtwork = SystemPlaybackArtwork(fallback: fallbackArtwork)
+    }
 
     /// Reconcile the saved queue against the first successfully loaded library without opening audio.
     public func restoreCheckpoint(tracks libraryTracks: [Track]) {
@@ -86,6 +98,8 @@ public final class Player {
         hasCheckpointContext = true
         lastSaved = saved
         publishSystemState()
+        // Do not leave removed library entries in the on-disk checkpoint until the next action.
+        if restored != saved.queue { persistCheckpoint() }
     }
 
     public func checkpoint() {
@@ -157,7 +171,21 @@ public final class Player {
         load(current)
     }
 
+    public func playAll(_ collection: [Track]) {
+        guard let first = collection.first else { return }
+        replaceQueue(with: collection, startingAt: first)
+    }
+
+    /// Activating the paused song from any list resumes its existing queue.
     public func play(_ track: Track, in collection: [Track]) {
+        if phase == .paused, current?.id == track.id {
+            resume()
+            return
+        }
+        replaceQueue(with: collection, startingAt: track)
+    }
+
+    private func replaceQueue(with collection: [Track], startingAt track: Track) {
         let selections = collection.contains(where: { $0.id == track.id }) ? collection : [track]
         tracks = Dictionary(selections.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var replacement = PlaybackQueue(ids: selections.map(\.id), start: track.id)
@@ -214,6 +242,21 @@ public final class Player {
         load(track)
     }
 
+    /// Refresh displayed metadata without touching order, media, or position.
+    public func refreshCatalogMetadata(_ libraryTracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        var changed = false
+        for track in libraryTracks where tracks[track.id].map({ $0 != track }) == true {
+            tracks[track.id] = track
+            if current?.id == track.id { current = track }
+            changed = true
+        }
+        if changed { updateUpcoming() }
+        // Rescanning can rebuild a missing thumbnail at the same URL (same content hash).
+        let retryArtwork = systemArtwork.retryIfMissing()
+        if changed || retryArtwork { publishSystemState() }
+    }
+
     public func removeUpcoming(_ id: UUID) {
         guard queue.upcoming.contains(id) else { return }
         removeTracks([id])
@@ -221,8 +264,10 @@ public final class Player {
 
     public func removeTracks(_ ids: Set<UUID>) {
         guard queue.ids.contains(where: { ids.contains($0) }) else { return }
-        cancelNavigation()
+        let targetRemoved = navigation?.cursor.selectedID.map(ids.contains) ?? false
+        navigation?.cursor.removeTracks(ids)
         queue.removeTracks(ids)
+        for id in ids { tracks.removeValue(forKey: id) }
         if let current, ids.contains(current.id) {
             clearItem()
             resetNavigation()
@@ -231,8 +276,9 @@ public final class Player {
             wantsSound = false
             position = 0
             duration = 0
+        } else if targetRemoved {
+            cancelNavigation()
         }
-        for id in ids { tracks.removeValue(forKey: id) }
         updateUpcoming()
         publishSystemState()
         checkpoint()
@@ -496,6 +542,7 @@ public final class Player {
         center.changePlaybackPositionCommand.isEnabled = seekingAvailable
         let now = MPNowPlayingInfoCenter.default()
         guard let current, phase != .failed else {
+            systemArtwork.update(url: nil) {}
             now.nowPlayingInfo = nil
             #if os(macOS)
             now.playbackState = .stopped
@@ -508,6 +555,8 @@ public final class Player {
                                    MPMediaItemPropertyPlaybackDuration: duration]
         info[MPMediaItemPropertyArtist] = current.metadata.artist
         info[MPMediaItemPropertyAlbumTitle] = current.metadata.album
+        systemArtwork.update(url: artworkURL(current)) { [weak self] in self?.publishSystemState() }
+        info[MPMediaItemPropertyArtwork] = systemArtwork.value
         now.nowPlayingInfo = info
         #if os(macOS)
         now.playbackState = phase == .playing ? .playing : .paused

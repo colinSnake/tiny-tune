@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<defs>
+ <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8367F4"/><stop offset="1" stop-color="#ED83B5"/></linearGradient>
+ <linearGradient id="rose" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#C575D1"/><stop offset="1" stop-color="#ED83B5"/></linearGradient>
+ <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#FAF8FC"/></linearGradient>
+</defs><g opacity=".24">
+ <path d="M198 844C249 776 275 709 279 635S321 497 409 441V900H198Z" fill="url(#paper)"/>
+ <path d="M247 754 279 664Q282 655 291 650L376 602 409 648 327 702Z" fill="url(#brand)" opacity=".30"/>
+ <path d="M279 664 291 650 376 602 382 623Z" fill="url(#rose)" opacity=".45"/>
+ <path d="M140 744C189 701 207 654 215 601S244 501 309 461M165 775C211 735 230 689 239 635S270 536 334 498M194 807C234 775 253 730 263 678S294 580 359 540" fill="none" stroke="url(#brand)" stroke-width="3" stroke-linecap="round"/>
+ <path d="M0 58C37 76 63 105 80 141" fill="none" stroke="#ED83B5" stroke-opacity=".24" stroke-width="2" stroke-linecap="round"/>
+</g></svg>

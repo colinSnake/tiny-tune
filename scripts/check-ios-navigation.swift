@@ -32,6 +32,6 @@ guard let title = observations.first(where: { $0.text == arguments[2] && $0.fram
     fail("Expected \(arguments[2]) in the navigation bar")
 }
 guard abs(title.frame.midX - 0.5) < 0.04 else {
-    fail("Navigation title is not centered inline: \(title.frame)")
+    fail("Navigation title is not centered: \(title.frame)")
 }
 print("PASS: three balanced tabs and a centered \(arguments[2]) title")

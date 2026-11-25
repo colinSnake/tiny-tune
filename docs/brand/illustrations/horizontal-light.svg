@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="927" height="412" viewBox="0 0 927 412">
+<defs>
+ <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8367F4"/><stop offset="1" stop-color="#ED83B5"/></linearGradient>
+ <linearGradient id="rose" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#C575D1"/><stop offset="1" stop-color="#ED83B5"/></linearGradient>
+ <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#FAF8FC"/></linearGradient>
+</defs><g opacity=".34">
+ <path d="M392 392C493 312 565 310 657 352S804 394 946 274V438H392Z" fill="url(#paper)"/>
+ <path d="M548 412C630 349 694 342 765 371S871 385 954 319V438H548Z" fill="url(#brand)" opacity=".20"/>
+ <path d="M598 341 700 267Q711 259 723 265L843 321 756 390Z" fill="url(#brand)" opacity=".30"/>
+ <path d="M699 268 730 265 844 321 810 333Z" fill="url(#rose)" opacity=".40"/>
+ <path d="M498 322C584 262 654 258 720 287S831 321 925 247M525 349C607 294 663 290 725 315S832 349 927 278M559 376C622 337 680 326 733 345S841 377 927 310" fill="none" stroke="url(#brand)" stroke-width="3" stroke-linecap="round"/>
+ <circle cx="635" cy="264" r="5" fill="#ED83B5"/><circle cx="872" cy="223" r="3" fill="#8367F4"/>
+</g></svg>

@@ -22,7 +22,22 @@ struct Catalog: View {
     let facet: Facet
     let showSources: () -> Void
     @State private var order: SongSort = .title
-    private enum SongSort: CaseIterable { case title, artist, recent }
+    #if os(iOS)
+    @State private var showsSortOptions = false
+    @ScaledMetric(relativeTo: .caption) private var sortIconSize: CGFloat = 11
+    #endif
+
+    private enum SongSort: CaseIterable {
+        case title, artist, recent
+
+        var label: LocalizedStringKey {
+            switch self {
+            case .title: "Song title"
+            case .artist: "Artist"
+            case .recent: "Recently added"
+            }
+        }
+    }
 
     var body: some View {
         if app.starting {
@@ -62,11 +77,16 @@ struct Catalog: View {
                     SongRows(app: app, tracks: list, playCollection: list, showSources: showSources)
                 }
             }
+            #if os(iOS)
+            // Facets have different row lengths and counts. A new scroll container starts
+            // at the top without reusing another facet’s offset or resetting song sort.
+            .id(facet)
+            #endif
         }
     }
 
     private var count: Int {
-        switch facet { case .artists: app.index.artists.count; case .albums: app.index.albums.count; case .songs: app.snapshot.tracks.count }
+        switch facet { case .artists: app.index.artists.count; case .albums: app.index.albums.count; case .songs: app.index.catalogTracks.count }
     }
 
     #if os(iOS)
@@ -81,9 +101,9 @@ struct Catalog: View {
 
     private var songs: [Track] {
         switch order {
-        case .title: app.snapshot.tracks
-        case .recent: app.snapshot.tracks.sorted { $0.dateAdded == $1.dateAdded ? MusicOrdering.byTitle($0, $1) : $0.dateAdded > $1.dateAdded }
-        case .artist: app.snapshot.tracks.sorted {
+        case .title: app.index.catalogTracks
+        case .recent: app.index.catalogTracks.sorted { $0.dateAdded == $1.dateAdded ? MusicOrdering.byTitle($0, $1) : $0.dateAdded > $1.dateAdded }
+        case .artist: app.index.catalogTracks.sorted {
             let a = $0.metadata.artist ?? "", b = $1.metadata.artist ?? ""
             let compare = a.localizedStandardCompare(b)
             return compare == .orderedSame ? MusicOrdering.byTitle($0, $1) : compare == .orderedAscending
@@ -92,14 +112,41 @@ struct Catalog: View {
     }
 
     private var sortMenu: some View {
+        #if os(iOS)
+        Button { showsSortOptions = true } label: {
+            Label {
+                Text("Sort By").font(.caption.weight(.medium))
+            } icon: {
+                Image(systemName: "arrow.up.arrow.down").font(.system(size: sortIconSize, weight: .medium))
+            }
+            .foregroundStyle(TuneTheme.accent)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Sort By")
+        .popover(isPresented: $showsSortOptions, attachmentAnchor: .rect(.bounds)) {
+            PhoneActionPopover {
+                ForEach(SongSort.allCases, id: \.self) { option in
+                    GridRow {
+                        PhonePopoverAction(option.label, isSelected: order == option) {
+                            showsSortOptions = false
+                            order = option
+                        }
+                    }
+                }
+            }
+        }
+        #else
         Menu {
             Picker("Sort By", selection: $order) {
-                Text("Song title").tag(SongSort.title)
-                Text("Artist").tag(SongSort.artist)
-                Text("Recently added").tag(SongSort.recent)
+                ForEach(SongSort.allCases, id: \.self) { option in
+                    Text(option.label).tag(option)
+                }
             }
         } label: { Label("Sort By", systemImage: "arrow.up.arrow.down") }
         .accessibilityLabel("Sort By")
+        #endif
     }
 }
 
@@ -108,39 +155,54 @@ struct EmptyLibrary: View {
     let showSources: () -> Void
 
     private var hasSources: Bool { !app.snapshot.sources.isEmpty }
+    #if os(macOS)
+    @ScaledMetric(relativeTo: .title2) private var titleSize: CGFloat = 22
+    #endif
+
     var body: some View {
         GeometryReader { viewport in
             ScrollView {
                 content.frame(minHeight: viewport.size.height)
             }
         }
-        .background { LibraryLandscape() }
     }
 
     private var content: some View {
         VStack(spacing: 18) {
+            #if os(macOS)
+            ArtworkTile(size: 146)
+                .clipShape(.rect(cornerRadius: 18))
+                .shadow(color: TuneTheme.primary.opacity(0.10), radius: 14, y: 7)
+                .padding(.bottom, 7)
+            #else
             LibraryIllustration()
                 .frame(maxWidth: 208)
                 .accessibilityHidden(true)
+            #endif
             VStack(spacing: 8) {
-                Text("No songs in your library")
+                Text("Give your favorite music a page of its own")
+                    #if os(macOS)
+                    .font(.system(size: titleSize, weight: .semibold))
+                    #else
                     .font(.title.weight(.semibold))
+                    #endif
                     .foregroundStyle(TuneTheme.primary)
                     .accessibilityAddTraits(.isHeader)
-                Text(hasSources ? "Your folders are still listed in Sources." : "Add a folder of music. Your files stay where they are.")
-                    .font(.subheadline)
-                    .foregroundStyle(TuneTheme.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
             if hasSources {
                 Button(action: showSources) { Label("View Music Sources", systemImage: "folder") }
-                    .buttonStyle(TunePrimaryButton())
             } else {
                 Button { app.choose() } label: { Label("Add Folder", systemImage: "plus") }
-                    .buttonStyle(TunePrimaryButton())
                     .disabled(!app.canImport)
             }
         }
+        #if os(macOS)
+        .buttonStyle(MacEmptyLibraryButton())
+        .padding(.bottom, 54)
+        #else
+        .buttonStyle(TunePrimaryButton())
+        #endif
         .frame(maxWidth: 400)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 24)
@@ -149,16 +211,48 @@ struct EmptyLibrary: View {
     }
 }
 
+#if os(macOS)
+private struct MacEmptyLibraryButton: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout.weight(.semibold))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 34)
+            .foregroundStyle(.white)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 8)
+                if contrast == .increased || !enabled {
+                    shape.fill(Color(red: 0.33, green: 0.20, blue: 0.60))
+                } else {
+                    shape.fill(TuneTheme.sidebarSelection)
+                }
+            }
+            .opacity(!enabled ? 0.57 : configuration.isPressed ? 0.83 : 1)
+    }
+}
+#endif
+
 struct CatalogScroll<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) { content }
+            stack
                 .frame(maxWidth: 1056)
                 .padding(.horizontal, catalogMargin)
                 .padding(.vertical, 18)
                 .frame(maxWidth: .infinity)
         }
+    }
+
+    private var stack: some View {
+        #if os(iOS)
+        VStack(alignment: .leading, spacing: 16) { content }
+        #else
+        LazyVStack(alignment: .leading, spacing: 16) { content }
+        #endif
     }
 }
 
@@ -241,7 +335,10 @@ struct AlbumGrid: View {
                     VStack(alignment: .leading, spacing: 6) {
                         ArtworkTile(artwork: album.artwork)
                         Text(album.title ?? String(localized: "Unknown album", bundle: AppLanguage.bundle, locale: AppLanguage.locale)).font(.body.weight(.medium)).foregroundStyle(TuneTheme.primary)
-                        Text(album.artist ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale)).font(.subheadline).foregroundStyle(TuneTheme.secondary)
+                        if album.showsArtistSubtitle {
+                            Text(album.artist ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
+                                .font(.subheadline).foregroundStyle(TuneTheme.secondary)
+                        }
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,11 +353,12 @@ struct AlbumGrid: View {
 
 struct SongRows: View {
     @State private var pendingRemoval: UUID?
+    @State private var editingTrack: Track?
     let app: AppState
     let tracks: [Track]
     let playCollection: [Track]
     let showSources: () -> Void
-    var numberTracks = false
+    var albumArtwork: URL? = nil
     #if os(macOS)
     @FocusState private var focused: UUID?
     @State private var selected: UUID?
@@ -275,17 +373,19 @@ struct SongRows: View {
         }
         .padding(4)
         .tuneCard()
+        .sheet(item: $editingTrack) { TrackDisplayEditor(app: app, track: $0) }
     }
 
     private func row(_ track: Track) -> some View {
         let play = { app.play(track, in: playCollection) }
         let state = state(for: track)
-        let content = TrackRowContent(title: track.metadata.title, detail: track.subtitle, duration: timeLabel(track.duration),
-                                      state: state?.title, artwork: track.artwork,
-                                      trackNumber: numberTracks ? track.metadata.track : nil, stateSymbol: state?.symbol)
+        let content = TrackRowContent(title: track.metadata.title, artist: track.displayArtist, duration: timeLabel(track.duration),
+                                      state: state?.title, artwork: track.artwork ?? albumArtwork, stateIcon: state?.icon)
         return rowInteraction(content, track: track, play: play)
             .contextMenu {
                 Button("Play", systemImage: "play", action: play)
+                Button("Edit Display Names", systemImage: "pencil") { editingTrack = track }
+                    .disabled(!app.canImport)
                 if app.unavailable.contains(track.rootID) { Button("View Music Sources", systemImage: "folder", action: showSources) }
                 Divider()
                 Button("Remove from Library", systemImage: "trash", role: .destructive) { pendingRemoval = track.id }
@@ -336,17 +436,94 @@ struct SongRows: View {
     }
     #endif
 
-    private func state(for track: Track) -> (title: String, symbol: String)? {
+    private func state(for track: Track) -> (title: String, icon: TrackRowStatusIcon)? {
         if app.unavailable.contains(track.rootID) {
-            return (String(localized: "Source unavailable", bundle: AppLanguage.bundle, locale: AppLanguage.locale), "exclamationmark.circle")
+            return (String(localized: "Source unavailable", bundle: AppLanguage.bundle, locale: AppLanguage.locale), .system("exclamationmark.circle"))
         }
         guard app.player.current?.id == track.id else { return nil }
         switch app.player.phase {
-        case .playing: return (String(localized: "Playing", bundle: AppLanguage.bundle, locale: AppLanguage.locale), "waveform")
-        case .loading: return (String(localized: "Loading…", bundle: AppLanguage.bundle, locale: AppLanguage.locale), "hourglass")
-        case .paused: return (String(localized: "Paused", bundle: AppLanguage.bundle, locale: AppLanguage.locale), "pause.fill")
-        case .failed: return (String(localized: "Could not play", bundle: AppLanguage.bundle, locale: AppLanguage.locale), "exclamationmark.circle")
+        case .playing: return (String(localized: "Playing", bundle: AppLanguage.bundle, locale: AppLanguage.locale), .playing)
+        case .loading: return (String(localized: "Loading…", bundle: AppLanguage.bundle, locale: AppLanguage.locale), .system("hourglass"))
+        case .paused: return (String(localized: "Paused", bundle: AppLanguage.bundle, locale: AppLanguage.locale), .paused)
+        case .failed: return (String(localized: "Could not play", bundle: AppLanguage.bundle, locale: AppLanguage.locale), .system("exclamationmark.circle"))
         default: return nil
+        }
+    }
+}
+
+private struct TrackDisplayEditor: View {
+    let app: AppState
+    let track: Track
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var artist: String
+    @State private var saving = false
+    @State private var failed = false
+
+    init(app: AppState, track: Track) {
+        self.app = app
+        self.track = track
+        _title = State(initialValue: track.metadata.title)
+        _artist = State(initialValue: track.metadata.artist ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            #if os(iOS)
+            ScrollView { fields.frame(maxWidth: .infinity, alignment: .leading) }
+            #else
+            fields
+            #endif
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving)
+                Button("Save", action: save)
+                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    .disabled(saving || !app.canImport)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: 520)
+        .foregroundStyle(TuneTheme.primary)
+        .background(TuneTheme.raised)
+        .tint(TuneTheme.accent)
+        .interactiveDismissDisabled(saving)
+        #if os(macOS)
+        .frame(width: 440)
+        #endif
+    }
+
+    private var fields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Edit Display Names").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Text(verbatim: track.path.rawValue).font(.caption).foregroundStyle(TuneTheme.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Song title").accessibilityHidden(true)
+                TextField("Song title", text: $title).textFieldStyle(.roundedBorder)
+                Text("Artist").accessibilityHidden(true)
+                TextField("Artist", text: $artist).textFieldStyle(.roundedBorder)
+                Text("Edits only affect the music library. Leave a field blank to use its automatic name.")
+                    .font(.footnote).foregroundStyle(TuneTheme.secondary)
+                Button("Restore Automatic Names") {
+                    title = track.automaticMetadata.title
+                    artist = track.automaticMetadata.artist ?? ""
+                }
+            }
+            .disabled(saving)
+            if failed {
+                Label("Could not save the display names. No changes were applied.", systemImage: "exclamationmark.circle")
+                    .foregroundStyle(TuneTheme.problem)
+            }
+        }
+    }
+
+    private func save() {
+        saving = true
+        failed = false
+        Task {
+            let saved = await app.saveDisplayNames(track, title: title, artist: artist)
+            saving = false
+            if saved { dismiss() } else { failed = true }
         }
     }
 }
@@ -361,11 +538,8 @@ struct ArtistDetail: View {
             GroupHeader(artwork: artist.artwork, title: artist.name ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale),
                         detail: groupCount(artist.albums.count, songs.count), app: app, tracks: songs)
             ForEach(artist.albums) { album in
-                NavigationLink(value: Page.album(album.id)) {
-                    Label { Text(album.title ?? String(localized: "Unknown album", bundle: AppLanguage.bundle, locale: AppLanguage.locale)) } icon: { Image(systemName: "square.stack") }
-                        .font(.headline).foregroundStyle(TuneTheme.accent)
-                }.buttonStyle(.plain)
-                SongRows(app: app, tracks: album.tracks, playCollection: songs, showSources: showSources, numberTracks: true)
+                SongRows(app: app, tracks: album.tracks, playCollection: songs,
+                         showSources: showSources, albumArtwork: album.artwork)
             }
         }
         .navigationTitle(artist.name ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
@@ -381,12 +555,16 @@ struct AlbumDetail: View {
     let showSources: () -> Void
     var body: some View {
         let discs = Dictionary(grouping: album.tracks) { $0.metadata.disc ?? 1 }
+        let artwork = album.artwork
+        let artist = album.artist ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale)
         CatalogScroll {
-            GroupHeader(artwork: album.artwork, title: album.title ?? String(localized: "Unknown album", bundle: AppLanguage.bundle, locale: AppLanguage.locale),
-                        detail: album.artist ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale), app: app, tracks: album.tracks)
+            GroupHeader(artwork: artwork, title: album.title ?? String(localized: "Unknown album", bundle: AppLanguage.bundle, locale: AppLanguage.locale),
+                        detail: album.showsArtistSubtitle ? artist : nil, app: app, tracks: album.tracks,
+                        countSummary: groupCount(1, album.tracks.count))
             ForEach(discs.keys.sorted(), id: \.self) { disc in
                 if discs.count > 1 { Text("Disc \(disc)").font(.headline).accessibilityAddTraits(.isHeader) }
-                SongRows(app: app, tracks: discs[disc] ?? [], playCollection: album.tracks, showSources: showSources, numberTracks: true)
+                SongRows(app: app, tracks: discs[disc] ?? [], playCollection: album.tracks,
+                         showSources: showSources, albumArtwork: artwork)
             }
         }
         .navigationTitle(album.title ?? String(localized: "Unknown album", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
@@ -399,10 +577,12 @@ struct AlbumDetail: View {
 private struct GroupHeader: View {
     let artwork: URL?
     let title: String
-    let detail: String
+    let detail: String?
     let app: AppState
     let tracks: [Track]
+    var countSummary: String? = nil
     @Environment(\.dynamicTypeSize) private var textSize
+
     var body: some View {
         ViewThatFits(in: .horizontal) {
             if !textSize.isAccessibilitySize {
@@ -424,15 +604,54 @@ private struct GroupHeader: View {
     }
 
     private var text: some View {
-        let first = tracks.first { !app.unavailable.contains($0.rootID) }
-        return VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.title2.weight(.semibold)).foregroundStyle(TuneTheme.primary).accessibilityAddTraits(.isHeader)
-            Text(detail).font(.subheadline).foregroundStyle(TuneTheme.secondary)
-            Button { if let first { app.play(first, in: tracks) } } label: { Label("Play All", systemImage: "play.fill") }
-                .buttonStyle(.borderedProminent).controlSize(.large).disabled(first == nil)
+            Group {
+                if let detail { Text(detail) }
+                if let countSummary { Text(countSummary) }
+            }
+            .font(.subheadline)
+            .foregroundStyle(TuneTheme.secondary)
+            PlayCollectionButton(app: app, tracks: tracks)
         }
     }
 }
+
+private struct PlayCollectionButton: View {
+    let app: AppState
+    let tracks: [Track]
+
+    var body: some View {
+        Button { app.playAll(tracks) } label: { Label("Play All", systemImage: "play.fill") }
+            #if os(iOS)
+            .buttonStyle(CompactPlayCollectionButtonStyle())
+            #else
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            #endif
+            .disabled(!tracks.contains { !app.unavailable.contains($0.rootID) })
+    }
+}
+
+#if os(iOS)
+private struct CompactPlayCollectionButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.footnote.weight(.semibold))
+            .imageScale(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .foregroundStyle(TuneTheme.onAccent)
+            .background(TuneTheme.accent.opacity(configuration.isPressed ? 0.8 : 1), in: .rect(cornerRadius: 8))
+            .opacity(isEnabled ? 1 : 0.45)
+            // Only the visible button shrinks; its touch target remains at least 44 pt.
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+    }
+}
+#endif
 
 struct SearchCatalog: View {
     let app: AppState

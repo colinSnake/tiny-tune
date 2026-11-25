@@ -1,0 +1,103 @@
+{
+  "date": "2026-11-24",
+  "scope": "design-only prototype",
+  "checks": [
+    {
+      "name": "关于图标打开紧凑关于弹窗",
+      "passed": true
+    },
+    {
+      "name": "完成关闭关于弹窗",
+      "passed": true
+    },
+    {
+      "name": "新增展示系统选定文件夹后的导入确认态",
+      "passed": true
+    },
+    {
+      "name": "跳过原因按需展开",
+      "passed": true
+    },
+    {
+      "name": "详情返回导入确认",
+      "passed": true
+    },
+    {
+      "name": "取消导入返回来源且不执行导入",
+      "passed": true
+    },
+    {
+      "name": "更多菜单保留来源操作",
+      "passed": true
+    },
+    {
+      "name": "音乐库页可达且六首示例歌曲完整",
+      "passed": true
+    },
+    {
+      "name": "示例搜索筛选结果正确",
+      "passed": true
+    },
+    {
+      "name": "清除搜索恢复完整示例列表",
+      "passed": true
+    },
+    {
+      "name": "交互预览可切换深色",
+      "passed": true
+    },
+    {
+      "name": "交互预览可返回浅色",
+      "passed": true
+    },
+    {
+      "name": "来源图标位于标题上方并左右分列",
+      "passed": true
+    },
+    {
+      "name": "顶部图标无外框且保留44pt热区",
+      "passed": true
+    },
+    {
+      "name": "资源加载完整且无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "浏览器未记录控制台错误",
+      "passed": true
+    }
+  ],
+  "geometry": {
+    "brokenImages": [],
+    "buttons": [
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "0px",
+        "height": 44,
+        "label": "关于 TinyTune",
+        "width": 44,
+        "x": 96,
+        "y": 742.0625
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "0px",
+        "height": 44,
+        "label": "添加音乐文件夹示意",
+        "width": 44,
+        "x": 410,
+        "y": 742.0625
+      }
+    ],
+    "overflow": false,
+    "titleY": 799.0625
+  },
+  "browserErrors": [],
+  "nativeValidation": "未执行 Xcode、模拟器、真机、VoiceOver 和 Dynamic Type 验收",
+  "staticChecks": {
+    "svgXML": "5 files parsed successfully",
+    "htmlAssetReferences": "all local references resolve",
+    "finalBoards": "6 JPEG review boards generated from source reference and browser screenshots",
+    "applicationBuilds": "not executed; design-only task"
+  }
+}

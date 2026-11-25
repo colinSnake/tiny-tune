@@ -25,4 +25,16 @@ final class LyricsTests: XCTestCase {
         XCTAssertEqual(LyricsDocument.parse("[00:00]引子\n[offset:-250]").cues.first?.milliseconds, 250)
         XCTAssertEqual(LyricsDocument.parse("[00:00.1]引子\n[offset:250]").cues.first?.milliseconds, 0)
     }
+
+    func testTimedGapsRetainAScrollTargetWithoutHighlightingLyrics() {
+        let document = LyricsDocument.parse("[00:05]First line\n[00:09]\n[00:17]Next line\n[00:22]")
+        XCTAssertNil(document.cueIndex(at: 0))
+        XCTAssertEqual(document.cueIndex(at: 5), 0)
+        XCTAssertEqual(document.cueIndex(at: 17), 2)
+        // Seeking backward into an instrumental gap needs an anchor before the next line.
+        XCTAssertEqual(document.cueIndex(at: 12), 1)
+        XCTAssertNil(document.index(at: 12))
+        XCTAssertEqual(document.cueIndex(at: 30), 3)
+        XCTAssertNil(document.index(at: 30))
+    }
 }

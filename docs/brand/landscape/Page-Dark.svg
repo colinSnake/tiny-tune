@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1170" height="2532" viewBox="0 0 390 844" role="img" aria-labelledby="title desc">
+<title id="title">TinyTune · 晴川留白 · 夜间竖屏通屏背景</title>
+<desc id="desc">基于项目 Web 顶部卡片原始山水 SVG 重新编排；保留远山、落日、湖面、扁舟与松林，顶部右侧成景，左侧和内容区留白。原生 iOS 通屏装饰；上方远山暖日，中段湖雾，底部近岸。</desc>
+<defs>
+    <linearGradient id="vapor" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#5a7769" stop-opacity=".78"/>
+      <stop offset=".8" stop-color="#455c4d" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#17251f" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="middle" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#5e8273"/>
+      <stop offset=".66" stop-color="#416957" stop-opacity=".63"/>
+      <stop offset="1" stop-color="#17251f" stop-opacity=".06"/>
+    </linearGradient>
+    <linearGradient id="near" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#78a18a"/>
+      <stop offset=".71" stop-color="#436951" stop-opacity=".86"/>
+      <stop offset="1" stop-color="#263f30" stop-opacity=".29"/>
+    </linearGradient>
+    <linearGradient id="water" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#365341" stop-opacity="0"/>
+      <stop offset="1" stop-color="#3a5947" stop-opacity=".43"/>
+    </linearGradient>
+    <linearGradient id="mist">
+      <stop stop-color="#17251f" stop-opacity="0"/>
+      <stop offset=".48" stop-color="#17251f" stop-opacity=".84"/>
+      <stop offset="1" stop-color="#17251f" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="sun">
+      <stop stop-color="#d8cba6"/>
+      <stop offset="1" stop-color="#d8cba6"/>
+    </radialGradient>
+    <linearGradient id="edge">
+      <stop stop-color="white" stop-opacity="0"/>
+      <stop offset=".16" stop-color="white" stop-opacity=".2"/>
+      <stop offset=".38" stop-color="white" stop-opacity=".87"/>
+      <stop offset=".58" stop-color="white"/>
+    </linearGradient>
+    <mask id="fade" maskUnits="userSpaceOnUse" x="0" y="0" width="900" height="360">
+      <path fill="url(#edge)" d="M0 0h900v360H0z"/>
+    </mask>
+    <filter id="grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency=".68" numOctaves="3" seed="13" stitchTiles="stitch"/>
+    </filter>
+    <g id="pine" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0 0q-2-14 0-29m0 6q-5 6-12 7 7 1 13-3m0-3q5 6 10 6m-11 1q-4 7-16 9 9 1 16-3m1-3q5 6 14 7M0-28q-4 8-9 9m9-10q4 8 10 9"/>
+    </g>
+  <linearGradient id="headerFade" gradientUnits="userSpaceOnUse" x1="0" y1="210" x2="0" y2="300"><stop stop-color="white"/><stop offset="1" stop-color="black"/></linearGradient><mask id="headerMask"><path fill="url(#headerFade)" d="M0 0h390v300H0z"/></mask>  <linearGradient id="lakeMist" x2="0" y2="1">
+    <stop stop-color="#526e60" stop-opacity="0"/>
+    <stop offset=".27" stop-color="#718e78" stop-opacity=".16"/>
+    <stop offset=".66" stop-color="#526e60" stop-opacity=".13"/>
+    <stop offset="1" stop-color="#718e78" stop-opacity=".24"/>
+  </linearGradient>
+  <linearGradient id="nearShore" x2="0" y2="1">
+    <stop stop-color="#4c725e" stop-opacity=".09"/>
+    <stop offset="1" stop-color="#4c725e" stop-opacity=".22"/>
+  </linearGradient>
+</defs>
+
+<path fill="url(#lakeMist)" d="M0 214h390v630H0z"/>
+<path fill="#718e78" opacity=".09" d="M0 320q72 44 166 31t224 1v84q-98-21-191 2T0 422Zm0 210q63 26 175 10t215-1v78q-75-21-175 5T0 604Z"/>
+<g fill="none" stroke="#8aa590" stroke-width=".8" stroke-linecap="round" opacity=".20">
+  <path d="M21 355q40 5 87 1m122 32q63-7 123-3M75 455q82-9 157-2m26 55q45-5 105-2M23 560q62 5 99-1m33 70q57-5 108-2m57 54q27-3 49-1M36 703q55-5 92-2"/>
+</g>
+<path fill="#526e60" opacity=".13" d="M0 748q28 6 64 2t76 17q35 15 79 17t76-1q55 0 95 20v41H0Z"/>
+<path fill="url(#nearShore)" d="M390 718q-24 9-47 28-37 24-68 27-32 2-58 21-30 16-66 20-46 7-80 6-40-1-71 13v11h390Z"/>
+<g color="#4c725e" stroke-width="1.4" opacity=".28">
+  <use href="#pine" transform="translate(357 747) scale(.58)"/>
+  <use href="#pine" transform="translate(376 735) scale(.79) rotate(7)"/>
+  <use href="#pine" transform="translate(386 732) scale(.84) rotate(-6)"/>
+</g>
+<g mask="url(#headerMask)"><g transform="translate(-191 48) scale(.69)" opacity=".45"><g mask="url(#fade)">
+    <path d="M0 228q174-20 316-6t319-6q130-13 265-6v150H0Z" fill="url(#water)"/>
+    <circle cx="696" cy="100" r="30" fill="url(#sun)" opacity=".79"/>
+    <path d="M73 256q47-25 98-52c21-11 39-36 62-45 27-10 38-35 61-50l9-3 18 18 21 9 20-10 29 29 18 12 14-5 21 17q28 14 52 49l35 25 35 18Z" fill="url(#vapor)"/>
+    <path d="M364 243q41-31 89-60l25-32 14-3 23-35 21-12 15-18 8 2 18 24 24 5 22 18 26 12 9 14 22 12 21 21 28 10 31 26 42 16 98 17v29H365Z" fill="url(#vapor)"/>
+    <path d="M527 132q10-22 24-40l8-5 13 17m-33 17-17 22-22 13-12 18m78-59 17 18 13 5 30 43" fill="none" stroke="#6e9180" stroke-width="1.4" opacity=".2"/>
+    <path d="M605 256c43-12 64-46 100-66l12-14 13-12 19-30 13-11 15 9 13-13 29 25 16 2q39 18 65 59v75H605Z" fill="url(#middle)"/>
+    <path d="M132 275q60-8 101-39l32-20 21-21 18-13 21-26 9 2 14 13 12 4 17 19 22 9 17 14 22 8 31 22 45 18 38 30-420-5Z" fill="url(#middle)" opacity=".72"/>
+    <path d="M299 186 323 161l9-4 12 14 12 5m-26-15-5 15-15 17-21 13m58-24 7 15 20 12 8 12" fill="none" stroke="#769984" stroke-width="1.2" opacity=".27"/>
+    <path d="M136 231q64-14 117-3 54 11 109 8 96-7 150-18 54-9 119-8 68 1 141 16-146-2-215 17-130 28-235 9-93-17-186-21Z" fill="url(#mist)"/>
+    <path d="M600 278c56-16 68-25 101-46l18-17 27 1 17-7 15-22 10-7 14-24 18-15 13 8 9-2 22 23 11 8 11 23 14 14v95q-64-9-121-5-140 14-179-27Z" fill="url(#near)"/>
+    <path d="M825 147q-9 17-27 35l-9 16-20 18m63-57q-3 18 4 32l17 14 13 19m-61-48-5 22-21 19-8 19-22 11m71-50-8 21-16 15-12 22m57-51 6 19 20 15 7 14m-142-21 20-8 15 1" fill="none" stroke="#78a18a" stroke-width="1.5" stroke-linecap="round" opacity=".48"/>
+    <path d="M545 270q67 10 111 7t129-7q-31 15-72 17t-88-2q-43-3-80-15Z" fill="url(#mist)" opacity=".79"/>
+    <g fill="none" stroke-linecap="round">
+      <path d="M306 291q63-5 114 0m-50 7q59 4 114-1m-25 23q60-5 104-3m10 19q57 3 101 1m40-42q46-5 73-1m-397 44q43 4 71 2m126-33q106-7 175 4m-222-26q38-3 65-2" stroke="#5d7e69" stroke-width="1.1" opacity=".48"/>
+      <path d="M193 317q52 3 91-1m74-3q46 3 81-1m63 17q72 5 136 0m-24-24q71 3 120-3m-165 42q63 0 107 5" stroke="#9cb69a" stroke-width="1.6" opacity=".79"/>
+      <path d="M621 115q28-3 62-2m-94 7q23 1 49-2" stroke="#d0d3b5" stroke-width="1.9" opacity=".79"/>
+    </g>
+    <g transform="translate(508 298)" fill="#8caf99" color="#8caf99" opacity=".83">
+      <path d="M0 5q20 4 43-1l-7 8q-23 4-36-7Z"/>
+      <path d="M10 6q5-7 12-8 9 0 14 8Z"/>
+      <path d="M32 1q16-12 23-29" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M7 15q12 3 24 1m-15 5q19 1 33-2" fill="none" stroke="currentColor" opacity=".54"/>
+    </g>
+    <path d="M663 360c42-9 80-25 112-34q25-7 55-7l20-11 31 1 19-5v56Z" fill="#3e6350" opacity=".6"/>
+    <path d="M771 360q50-25 73-27l28-12 15 5 13-6v40Z" fill="#31543e" opacity=".57"/>
+    <g color="#6c927b" stroke-width="1.85" opacity=".85">
+      <use href="#pine" transform="translate(840 332) scale(.87) rotate(-9)"/>
+      <use href="#pine" transform="translate(870 327) scale(1.31) rotate(9)"/>
+      <use href="#pine" transform="translate(898 323) scale(1.61) rotate(-13)"/>
+      <use href="#pine" transform="translate(757 332) scale(.54) rotate(-6)"/>
+      <use href="#pine" transform="translate(778 328) scale(.71) rotate(8)"/>
+    </g>
+    <path d="M0 0h900v360H0z" filter="url(#grain)" opacity=".085" style="mix-blend-mode:multiply"/>
+  </g></g>
+</g>
+</svg>

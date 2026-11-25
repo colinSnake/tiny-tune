@@ -7,7 +7,7 @@ import AppKit
 #endif
 
 private enum AppBrand {
-    static let displayName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "曲笺"
+    static let displayName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "听页"
 }
 
 /// Tinytune's own interface is Simplified Chinese, independent of the system picker language.
@@ -92,27 +92,28 @@ private struct PhoneShell: View {
     @State private var query = ""
     @State private var showsPlayer = false
     @State private var showsQueue = false
-    @State private var showsAbout = false
     @Environment(\.dynamicTypeSize) private var textSize
 
     private enum Tab { case library, search, sources }
+
+    private var libraryBackgroundStyle: PhoneLibraryBackground.Style {
+        !app.starting && !app.storeFailure && app.snapshot.tracks.isEmpty ? .emptyLibrary : .browsing
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack(path: $libraryPath) {
                 VStack(spacing: 0) {
-                    if !app.snapshot.tracks.isEmpty { facetSelector }
+                    PhoneRootSummary(subtitle: Text("\(Text("\(app.index.catalogTracks.count) songs")) · \(Text("\(app.index.albums.count) albums"))"))
+                    if !app.snapshot.tracks.isEmpty { facetSelector.padding(.top, textSize.isAccessibilitySize ? 0 : 24) }
                     Catalog(app: app, facet: facet, showSources: showSources)
                 }
-                .background(TuneTheme.canvas)
+                .phoneLibraryBackground(libraryBackgroundStyle)
                 .navigationTitle(String(localized: "Music Library", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        if !app.snapshot.sources.isEmpty {
-                            Button("Add Folder", systemImage: "plus") { app.choose() }.disabled(!app.canImport)
-                        }
-                    }
+                    PhoneRootToolbar(canImport: app.canImport, add: { app.choose() })
                 }
                 .navigationDestination(for: Page.self, destination: destination)
             }
@@ -125,7 +126,8 @@ private struct PhoneShell: View {
                     .navigationTitle(String(localized: "Search", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
                     .navigationBarTitleDisplayMode(.inline)
                     .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Title, artist or album")
-                    .background(TuneTheme.canvas)
+                    .phoneLibraryBackground(.browsing)
+                    .toolbarBackground(.hidden, for: .navigationBar)
                     .navigationDestination(for: Page.self, destination: destination)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { mini }
@@ -133,39 +135,25 @@ private struct PhoneShell: View {
             .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(Tab.search)
 
             NavigationStack {
-                SourcesView(app: app)
-                    .navigationTitle(String(localized: "Music Sources", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
-                    .navigationBarTitleDisplayMode(.inline)
-                    .background(TuneTheme.canvas)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            Button("About Tinytune", systemImage: "info.circle") { showsAbout = true }
-                            if !app.snapshot.sources.isEmpty {
-                                Button("Add Folder", systemImage: "plus") { app.choose() }.disabled(!app.canImport)
-                            }
-                        }
+                VStack(spacing: 0) {
+                    if !app.snapshot.sources.isEmpty {
+                        PhoneRootSummary(subtitle: Text("\(app.snapshot.sources.count) music folders"))
                     }
+                    SourcesView(app: app)
+                }
+                .phoneLibraryBackground(.browsing)
+                .navigationTitle(String(localized: "Music Sources", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbar {
+                    PhoneRootToolbar(canImport: app.canImport, add: { app.choose() })
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { mini }
             .tint(TuneTheme.accent)
             .tabItem { Label("Music Sources", systemImage: "folder") }.tag(Tab.sources)
         }
         .tint(TuneTheme.phoneTabSelection)
-        .sheet(isPresented: $showsAbout) {
-            NavigationStack {
-                AboutTinytuneView()
-                    .navigationTitle(String(localized: "About Tinytune", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showsAbout = false }
-                        }
-                    }
-            }
-            .presentationDetents([.height(240)])
-            .presentationDragIndicator(.visible)
-            .tint(TuneTheme.accent)
-        }
         .fullScreenCover(isPresented: $showsPlayer) {
             NavigationStack {
                 NowPlayingView(app: app, showQueue: { showsQueue = true }, showSources: {
@@ -249,10 +237,75 @@ private struct PhoneShell: View {
 
     private func destination(_ page: Page) -> some View {
         DestinationContent(app: app, page: page, queue: { showsQueue = true }, sources: showSources)
+            .toolbar(.visible, for: .navigationBar)
     }
 
     private func showSources() { selectedTab = .sources }
 }
+
+/// Counts stay in the content area; all three tab titles use the native inline bar.
+private struct PhoneRootSummary: View {
+    let subtitle: Text
+
+    var body: some View {
+        subtitle
+            .font(.subheadline)
+            .foregroundStyle(TuneTheme.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 24)
+            .padding(.top, 6)
+            .padding(.bottom, 12)
+    }
+}
+
+private struct PhoneRootToolbar: ToolbarContent {
+    let canImport: Bool
+    let add: () -> Void
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            action("plus", label: "Add Folder", perform: add)
+                .disabled(!canImport)
+        }
+        .phonePlainToolbarBackground()
+    }
+
+    private func action(_ symbol: String, label: LocalizedStringKey, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .regular))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color(uiColor: .label))
+        .accessibilityLabel(label)
+    }
+}
+
+private extension ToolbarContent {
+    @ToolbarContentBuilder
+    func phonePlainToolbarBackground() -> some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            sharedBackgroundVisibility(.hidden)
+        } else {
+            self
+        }
+    }
+}
+
+private extension View {
+    func phoneLibraryBackground(_ style: PhoneLibraryBackground.Style) -> some View {
+        frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { PhoneLibraryBackground(style: style) }
+            // The canvas extends under native bars; the fold stops at the content edge.
+            .background { TuneTheme.canvas.ignoresSafeArea(.container) }
+            .toolbarBackground(.hidden, for: .tabBar)
+    }
+}
+
 #else
 private struct MacShell: View {
     let app: AppState
@@ -286,7 +339,7 @@ private struct MacShell: View {
                     .navigationTitle(title)
                 }
                 .navigationDestination(for: Page.self) { page in
-                    macChrome {
+                    macChrome(nowPlaying: page == .player) {
                         DestinationContent(app: app, page: page, sources: showSources)
                     }
                 }
@@ -316,19 +369,24 @@ private struct MacShell: View {
         return String(localized: "Music Library", bundle: AppLanguage.bundle, locale: AppLanguage.locale)
     }
 
-    private func macChrome<V: View>(@ViewBuilder content: () -> V) -> some View {
+    private func macChrome<V: View>(nowPlaying: Bool = false, @ViewBuilder content: () -> V) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 content().frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showsLyrics {
+                    .background {
+                        if !nowPlaying {
+                            MacLibraryBackground(hasTracks: !app.snapshot.tracks.isEmpty)
+                        }
+                    }
+                if showsLyrics && !nowPlaying {
                     Divider()
                     LyricsPanel(app: app).frame(minWidth: 220, idealWidth: 280, maxWidth: 300)
                 }
             }
-            MiniPlayer(app: app, open: {
-                if path.last == .player { path.removeLast() }
-                else { path.append(.player) }
-            }, showsLyrics: showsLyrics, toggleLyrics: { showsLyrics.toggle() })
+            if !nowPlaying {
+                MiniPlayer(app: app, open: { path.append(.player) },
+                           showsLyrics: showsLyrics, toggleLyrics: { showsLyrics.toggle() })
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TuneTheme.canvas)
@@ -418,8 +476,10 @@ private struct MacLibrarySidebar: View {
 
     private var libraryHeader: some View {
         HStack(spacing: 10) {
-            Image("MacFoldedRecord")
-                .foregroundStyle(TuneTheme.accent)
+            Image(decorative: "BrandMark")
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
                 .frame(width: 36, height: 36)
                 .background(TuneTheme.subtle, in: .rect(cornerRadius: 9))
                 .accessibilityHidden(true)
@@ -517,7 +577,9 @@ private struct DestinationContent: View {
                 #endif
             }
         }
+        #if os(iOS)
         .background(TuneTheme.canvas)
+        #endif
     }
 
     private var itemUnavailable: some View { ContentUnavailableView("Not in the library", systemImage: "music.note") }
