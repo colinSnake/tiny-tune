@@ -172,10 +172,12 @@ export class BilibiliMedia {
       throw new SongError('B 站未返回这个分集的完整公开音轨。可以稍后重试，或选择另一条投稿。', 502);
     }
     if (expectedHash && hash(original) !== expectedHash) throw new SongError('B 站音轨版本已变更，需要重新核对后才能下载。', 409);
+    // Keep MP3 compatibility without imposing a second fixed 128 kbps bottleneck.
+    // VBR cannot restore detail absent in the source and does not imply lossless audio.
     let mp3: Buffer;
     try {
       mp3 = await run(tools.ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-xerror', '-err_detect', 'explode',
-        '-f', 'mov', '-i', 'pipe:0', '-map', '0:a:0', '-map_metadata', '-1', '-c:a', 'libmp3lame', '-b:a', '128k', '-f', 'mp3', 'pipe:1'],
+        '-f', 'mov', '-i', 'pipe:0', '-map', '0:a:0', '-map_metadata', '-1', '-c:a', 'libmp3lame', '-q:a', '0', '-f', 'mp3', 'pipe:1'],
       32 * 1024 * 1024, signal, original);
     } catch {
       signal.throwIfAborted();

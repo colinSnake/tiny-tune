@@ -1,4 +1,5 @@
 import type { MusicSources } from './providers';
+import { hasInvalidLyricCandidate } from './lyric-quality';
 import { normalizeSearch, rankSongs, songMatchScore, type SongDetail, type SongSummary } from './song-types';
 import { isSongId, parseLyrics, SongError, type SongCatalog, type SongRecord } from './songs';
 import type { LyricCandidate } from './types';
@@ -10,7 +11,7 @@ const sourceUrl = 'https://lrclib.net/';
 function preview(candidate: LyricCandidate): SongDetail | undefined {
   const { title, artist, album, duration } = candidate;
   const id = String(candidate.id);
-  if (!isSongId(id) || candidate.instrumental || duration === null) return;
+  if (!isSongId(id) || candidate.instrumental || duration === null || hasInvalidLyricCandidate(candidate)) return;
   const timed = parseLyrics(candidate.synced, duration).lyrics;
   const lyrics = timed?.kind === 'timed' ? timed : parseLyrics(candidate.plain, duration).lyrics ?? timed;
   if (!lyrics) return;

@@ -1,4 +1,5 @@
 import { parseLrc } from './lrc';
+import { hasInvalidLyricCandidate } from './lyric-quality';
 import type { LyricCandidate, LyricResult, Track } from './types';
 
 // Fold the width block only; whole-string NFKC also merges distinct titles such as ① and 1.
@@ -6,6 +7,7 @@ export const normalize = (value: string) => value.replace(/[\u3000\uFF00-\uFFEF]
   .normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ');
 
 export function candidateResult(candidate: LyricCandidate): LyricResult {
+  if (hasInvalidLyricCandidate(candidate)) return { status: 'missing' };
   if (candidate.instrumental) return { status: 'instrumental', candidate };
   if (parseLrc(candidate.synced).cues.length) return { status: 'timed', candidate };
   const plain = parseLrc(candidate.plain || candidate.synced).plain;
@@ -14,6 +16,7 @@ export function candidateResult(candidate: LyricCandidate): LyricResult {
 }
 
 export function plainCandidate(candidate: LyricCandidate): LyricCandidate {
+  if (hasInvalidLyricCandidate(candidate)) return { ...candidate, synced: '', plain: '' };
   const parsed = parseLrc(candidate.plain || candidate.synced);
   const plain = parsed.cues.length ? parsed.cues.flatMap(cue => cue.lines).join(String.fromCharCode(10)) : parsed.plain;
   return { ...candidate, synced: '', plain };

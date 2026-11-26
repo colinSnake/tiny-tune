@@ -35,6 +35,8 @@ async function setup(t: TestContext, change: { badProject?: boolean; badAudio?: 
   await command(ffmpeg, `
     const assert = require('node:assert/strict');
     assert(process.argv.includes('libmp3lame'));
+    assert.equal(process.argv[process.argv.indexOf('-q:a') + 1], '0');
+    assert(!process.argv.includes('-b:a'), 'do not force a lossy 128 kbps bottleneck');
     assert.equal(require('node:fs').readFileSync(0, 'utf8'), ${JSON.stringify(recording.toString())});
     process.stdout.write(Buffer.from(${JSON.stringify((change.shortMp3 ? audio.subarray(0, frame.length * 4) : audio).toString('base64'))}, 'base64'));
   `);
@@ -114,6 +116,9 @@ test('普通 MP3 转码只允许指定的 B 站分集和 HTTPS 音轨，并验�
   `, { mode: 0o700 });
   await writeFile(ffmpeg, `#!${process.execPath}
     const assert = require('node:assert/strict');
+    const args = process.argv.slice(2);
+    assert.equal(args[args.indexOf('-q:a') + 1], '0');
+    assert(!args.includes('-b:a'), 'do not force a lossy 128 kbps bottleneck');
     assert.equal(require('node:fs').readFileSync(0, 'utf8'), ${JSON.stringify(recording.toString())});
     process.stdout.write(Buffer.from(${JSON.stringify(audio.toString('base64'))}, 'base64'));
   `, { mode: 0o700 });
@@ -122,4 +127,18 @@ test('普通 MP3 转码只允许指定的 B 站分集和 HTTPS 音轨，并验�
   assert.deepEqual(await media.audio(url, 3, undefined, signal), audio);
   await assert.rejects(media.audio(source, 3, undefined, signal), /无效的 B 站音轨标识/);
   await assert.rejects(media.audio(url, 9, undefined, signal), /时长不符/);
+});
+
+
+test('MP3 duration validation accepts genuine variable bitrate frame sizes', async () => {
+  const { mp3Duration } = await import('../src/song-mp3');
+  const rates = [128, 192, 256, 320], indices = [9, 11, 13, 14];
+  const frames = Array.from({ length: 115 }, (_, index) => {
+    const i = index % rates.length;
+    const frame = Buffer.alloc(Math.floor(144000 * rates[i] / 44100));
+    frame.set([0xff, 0xfb, indices[i] << 4, 0x64]);
+    return frame;
+  });
+  assert.equal(mp3Duration(Buffer.concat(frames)), 115 * 1152 / 44100);
+  assert.equal(mp3Duration(Buffer.concat(frames).subarray(0, -1)), null);
 });

@@ -1,4 +1,5 @@
 import type { CollectionItem, ItemState } from './types';
+import { hasInvalidLyricCandidate } from './lyric-quality';
 import type { LocalTrack } from './local-library-types';
 import { defaultLyricScript, formatLyricText, type LyricScript } from './lyric-script';
 
@@ -19,6 +20,7 @@ export function lrcFilename(name: string, fromAudio = false): string {
 }
 
 export function lyricText(result: ItemState): string | null {
+  if ('candidate' in result && hasInvalidLyricCandidate(result.candidate)) return null;
   return result.status === 'timed' ? result.candidate.synced : result.status === 'plain' ? result.candidate.plain : null;
 }
 

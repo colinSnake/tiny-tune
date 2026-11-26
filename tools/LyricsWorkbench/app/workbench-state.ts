@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { exactArtist, mergeTracks } from '../src/collection';
 import { candidateResult } from '../src/match';
-import type { LocalLibrarySearch, LocalTrack } from '../src/local-library-types';
+import type { LocalLibrarySearch, LocalLyricsLookup, LocalTrack, TimingLookup } from '../src/local-library-types';
 import { songProviders, type SongAvailability, type SongCatalogStatus, type SongDetail, type SongSummary } from '../src/song-types';
 import type { Artist, ItemState, Track, TrackPage } from '../src/types';
 import { localSearchTerms, workspaceRows, type WorkspaceRow } from '../src/workbench';
@@ -13,11 +13,12 @@ export async function jsonRequest<T>(url: string, signal?: AbortSignal, body?: u
     ...(body !== undefined ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) }));
   return response.json() as Promise<T>;
 }
-export type WorkbenchDetail = { key: string; track: Track; result: ItemState; local?: LocalTrack; song?: SongDetail };
+export type WorkbenchDetail = { key: string; track: Track; result: ItemState; local?: LocalTrack; song?: SongDetail; timing?: TimingLookup; findingTiming?: boolean };
 export function rowTrack(row: WorkspaceRow): Track {
   return row.kind === 'song' ? { ...row.track, duration: row.track.duration || null, albums: row.track.album ? [row.track.album] : [] } : row.track;
 }
-export async function fetchDetail(row: WorkspaceRow, signal: AbortSignal, version?: SongSummary, onReady?: (detail: WorkbenchDetail) => void): Promise<WorkbenchDetail> {
+export async function fetchDetail(row: WorkspaceRow, signal: AbortSignal, version?: SongSummary, onReady?: (detail: WorkbenchDetail) => void,
+  searchTiming = false): Promise<WorkbenchDetail> {
   if (row.kind === 'song') {
     const { track: song } = await jsonRequest<{ track: SongDetail }>(trackPath(version ?? row.track), signal);
     const track: Track = { ...song, id: songKey(song), duration: song.duration || null, albums: song.album ? [song.album] : [] };
@@ -33,7 +34,7 @@ export async function fetchDetail(row: WorkspaceRow, signal: AbortSignal, versio
     return { key: row.key, track, song, result };
   }
   if (row.kind === 'local') {
-    const response = await jsonRequest<{ track: LocalTrack; result: ItemState }>(`/api/local-library/${row.track.id}/lyrics`, signal, {});
+    const response = await jsonRequest<LocalLyricsLookup>(`/api/local-library/${row.track.id}/lyrics`, signal, searchTiming ? { searchTiming } : {});
     return { ...response, key: row.key, local: response.track };
   }
   const response = await jsonRequest<{ track: Track; result: ItemState }>('/api/lyrics', signal, row.track);
@@ -155,7 +156,9 @@ export function useWorkbench() {
     const cacheKey = version ? `${row.key}/${songKey(version)}` : row.key;
     const remembered = cache.current.get(cacheKey);
     if (remembered && !detailAttempt) { setDetail(remembered); return; }
-    setDetail({ key: row.key, track: rowTrack(row), result: { status: 'running' }, ...(row.kind === 'local' ? { local: row.track } : {}) });
+    const localPlain = remembered?.local?.lyricsKind === 'plain' && remembered.result.status === 'plain' ? remembered : undefined;
+    setDetail(localPlain ? { ...localPlain, timing: undefined, findingTiming: true }
+      : { key: row.key, track: rowTrack(row), result: { status: 'running' }, ...(row.kind === 'local' ? { local: row.track } : {}) });
     const publish = (data: WorkbenchDetail) => {
       if (task.signal.aborted) return;
       setDetail(data);
@@ -164,10 +167,12 @@ export function useWorkbench() {
         setAvailability(current => current.get(songKey(song)) === song.availability ? current : new Map(current).set(songKey(song), song.availability));
       }
     };
-    void fetchDetail(row, task.signal, version, publish).then(data => {
+    void fetchDetail(row, task.signal, version, publish, !!localPlain).then(data => {
       if (!task.signal.aborted) { if (data.result.status !== 'error') cache.current.set(cacheKey, data); publish(data); }
-    }).catch(error => { if (!task.signal.aborted) setDetail({ key: row.key, track: rowTrack(row),
-      ...(row.kind === 'local' ? { local: row.track } : {}), result: { status: 'error', message: failure(error).message } }); });
+    }).catch(error => {
+      if (!task.signal.aborted) setDetail(localPlain ? { ...localPlain, timing: { status: 'error', message: failure(error).message } }
+        : { key: row.key, track: rowTrack(row), ...(row.kind === 'local' ? { local: row.track } : {}), result: { status: 'error', message: failure(error).message } });
+    });
     return () => task.abort();
   }, [selectedKey, version, detailAttempt]);
 

@@ -12,14 +12,15 @@ import { isSongId, JamendoCatalog, songSourceError, songZip, type SongCatalog } 
 import { PublishedCatalog } from './published-songs';
 import { BilibiliCatalog } from './bilibili-songs';
 import { BilibiliDiscovery, isBilibiliVideoId } from './bilibili-discovery';
-import { lrcFilename, lyricText } from './export';
+import { lyricText } from './export';
+import { songTitleStem } from './song-archive';
 import { parseLyricScript } from './lyric-script';
 import { saveLyricsLocally, saveSongLocally, type SongLocalSaveResult } from './song-local-save';
 import { LyricsCatalog } from './lyrics-catalog';
 import { matchLyrics, normalize } from './match';
 import { chooseLyrics } from './workbench';
 import { matchVideoLyrics, videoLyricQuery } from './video-lyrics';
-import { normalizeSearch, rankSongs, songProviders, songProviderLabels, type SongDetail, type SongProvider } from './song-types';
+import { rankSongs, songProviders, songProviderLabels, type SongDetail, type SongProvider } from './song-types';
 
 type Sources = Pick<MusicSources, 'artists' | 'recordings' | 'collect'>;
 type ServerOptions = {
@@ -189,12 +190,12 @@ export async function createServer(options: ServerOptions = {}) {
     try { return await local.search(q); }
     catch { return reply.code(503).send({ error: '本地曲库暂不可读，请检查 Web 服务的目录访问权限。' }); }
   });
-  app.post<{ Params: { id: string } }>('/api/local-library/:id/lyrics', { bodyLimit: 1024 }, async (request, reply) => {
+  app.post<{ Params: { id: string }; Body?: { searchTiming?: boolean } }>('/api/local-library/:id/lyrics', { bodyLimit: 1024 }, async (request, reply) => {
     if (!localHeaders(request, reply)) return reply.code(403).send();
     if (!local || !localTrackId.test(request.params.id)) return reply.code(404).send({ error: '找不到本地录音。' });
     const context = requestSignal(request, reply);
     try {
-      return await local.lookup(request.params.id, context.signal) ?? reply.code(404).send({ error: '本地音频已变化，请重新搜索歌手。' });
+      return await local.lookup(request.params.id, context.signal, request.body?.searchTiming === true) ?? reply.code(404).send({ error: '本地音频已变化，请重新搜索歌手。' });
     } catch (error) { return sourceError(error, context.signal, reply); }
     finally { context.dispose(); }
   });
@@ -419,22 +420,13 @@ export async function createServer(options: ServerOptions = {}) {
             track = record.track; download = () => catalog.audio(record, signal);
           }
           signal.throwIfAborted();
-          let existingAudio: string | undefined;
-          if (local && track.provider === 'bilibili-video' && track.artist && track.title) {
-            // Refresh paths: the user may have moved or renamed files since the last search.
-            local.invalidate();
-            const snapshot = await local.search([track.artist]);
-            const matches = snapshot.tracks.filter(candidate => normalizeSearch(candidate.artist) === normalizeSearch(track.artist) &&
-              normalizeSearch(candidate.title) === normalizeSearch(track.title) && candidate.duration !== null && Math.abs(candidate.duration - track.duration) <= 2);
-            if (matches.length > 1) return { status: 'conflict' };
-            existingAudio = matches[0]?.file;
-          }
+          const videoTargets = local && track.provider === 'bilibili-video' && track.artist && track.title ? await local.videoSaveTargets(track) : undefined;
           const result = await saveSongLocally(options.localLibraryRoot!, track, async () => {
             signal.throwIfAborted();
             const audio = await download();
             signal.throwIfAborted();
             return audio;
-          }, legacyVideoTitle, lyricScript, existingAudio);
+          }, legacyVideoTitle, lyricScript, videoTargets);
           if (result.status === 'saved' || result.status === 'lyrics-added') local?.invalidate();
           return { ...result, ...(result.audio && !result.lyrics && lyricsIssue ? { lyricsIssue } : {}),
             ...(result.status === 'saved' && videoSource?.coverIssue ? { coverIssue: videoSource.coverIssue } : {}) };
@@ -443,7 +435,7 @@ export async function createServer(options: ServerOptions = {}) {
         if (mode === 'mp3' && bilibiliVideos) {
           const download = await bilibiliVideos.mp3(id, signal);
           body = download.body;
-          filename = `${lrcFilename([download.track.artist, download.track.title].filter(Boolean).join(' - ')).slice(0, -4)}.mp3`;
+          filename = `${songTitleStem(download.track.title)}.mp3`;
         } else ({ body, filename } = await songZip(catalog, id, signal, lyricScript));
         const extension = mode === 'mp3' ? 'mp3' : 'zip';
         const encoded = encodeURIComponent(filename).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);

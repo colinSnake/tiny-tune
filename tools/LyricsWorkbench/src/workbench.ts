@@ -9,7 +9,7 @@ export function chooseLyrics(state: ItemState, id?: number, local?: Track) {
   const candidate = state.status === 'review'
     ? id === undefined ? state.candidates[0] : state.candidates.find(c => c.id === id)
     : 'candidate' in state ? state.candidate : undefined;
-  if (!candidate) return;
+  if (!candidate || candidateResult(candidate).status === 'missing') return;
   const sameIdentity = !local || matchesLocalLyricIdentity(local, candidate);
   // Video candidates are already screened by song/artist on the server; the default is a preview only.
   if (local?.id.startsWith('bilibili-video:')) {

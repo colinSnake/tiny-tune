@@ -39,8 +39,12 @@ export default function Workbench() {
   const [previewRequest, setPreviewRequest] = useState<{ key: string; id: number }>();
   const previewSequence = useRef(0);
   const detail = state.detail?.key === state.selected?.key ? state.detail : undefined;
-  const chosen = detail ? chooseLyrics(detail.result, choices.get(detail.key), detail.track) : undefined;
-  const lyricVersions = detail?.result.status === 'review' ? detail.result.candidates : [];
+  const candidateId = detail ? choices.get(detail.key) : undefined;
+  const lyricReview = detail?.timing?.status === 'review' ? detail.timing : detail?.result;
+  const chosen = detail ? chooseLyrics(candidateId !== undefined && detail.timing?.status === 'review' ? detail.timing : detail.result, candidateId, detail.track) : undefined;
+  const lyricVersions = lyricReview?.status === 'review' ? lyricReview.candidates : [];
+  const videoLyricReview = detail?.song?.provider === 'bilibili-video' && lyricReview?.status === 'review';
+  const requiresLyricChoice = !!detail?.timing || !!detail?.local?.confirmTiming || videoLyricReview;
   const lrclibRow = state.selected?.kind === 'song' && state.selected.versions.length > 1 ? state.selected : undefined;
   const busy = !!actions.job?.busy;
   const saving = busy && actions.job?.mode === 'save';
@@ -56,6 +60,10 @@ export default function Workbench() {
   function preview(row: WorkspaceRow) { select(row); setPreviewRequest({ key: row.key, id: ++previewSequence.current }); }
   function toggle(row: WorkspaceRow) { setChecked(before => { const next = new Set(before); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; }); }
   function chooseCandidate(id: number) { if (detail) setChoices(before => new Map(before).set(detail.key, id)); }
+  function retryLyrics() {
+    if (detail?.local?.lyricsKind === 'plain') setChoices(before => { const next = new Map(before); next.delete(detail.key); return next; });
+    state.retryDetail();
+  }
   function chooseVersion(version: SongSummary) { state.chooseVersion(version); }
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (composing.current || !state.query.trim()) return; state.search(); setChecked(new Set()); setChoices(new Map()); setPlayingKey(''); setPreviewRequest(undefined); }
   function runAction(mode: 'save' | 'export') {
@@ -116,13 +124,18 @@ export default function Workbench() {
             : <WorkbenchPlayer key={detail.key} detail={detail} autoPlay={state.autoPlay} playRequest={previewRequest?.key === detail.key ? previewRequest.id : undefined}
               onPlaybackChange={playing => setPlayingKey(previous => playing ? detail.key : previous === detail.key ? '' : previous)}
               result={chosen?.result ?? detail.result} lyricScript={lyricScript} audioFile={actions.audioFiles.get(detail.song ? `${detail.song.provider}:${detail.song.id}` : '')}
-              lyricStatus={<Status result={chosen?.result ?? detail.result} />} onRetry={detail.result.status !== 'running' ? state.retryDetail : undefined}
+              lyricStatus={<Status result={chosen?.result ?? detail.result} />} onRetry={detail.result.status !== 'running' && !detail.findingTiming ? retryLyrics : undefined}
+              retryLabel={detail.local?.lyricsKind === 'plain' ? '查找歌词时码' : undefined}
               lyricOptions={<>
                 {lrclibRow && <label className="wb-version">歌词版本<select aria-label="歌词版本" value={state.version?.id ?? lrclibRow.versions[0].id} onChange={event => { const choice = lrclibRow.versions.find(item => item.id === event.target.value); if (choice) chooseVersion(choice); }}>{lrclibRow.versions.map(version => <option key={version.id} value={version.id}>{version.title} · {version.artist} · {formatTime(version.duration)}</option>)}</select></label>}
-                {lyricVersions.length > 0 && <label className="wb-version">匹配歌词<select aria-label="匹配歌词" value={(detail.local?.confirmTiming ? choices.get(detail.key) : chosen?.candidate.id) ?? ''} onChange={event => chooseCandidate(Number(event.target.value))}>{(!chosen || detail.local?.confirmTiming && !choices.has(detail.key)) && <option value={''} disabled>选择歌词版本</option>}{lyricVersions.map((candidate: LyricCandidate) => <option key={candidate.id} value={candidate.id}>{candidate.title} · {candidate.album || '未知版本'} · {candidate.artist} · {formatTime(candidate.duration)}</option>)}</select></label>}
+                {lyricVersions.length > 0 && <label className="wb-version">匹配歌词<select aria-label="匹配歌词" value={(requiresLyricChoice ? candidateId : chosen?.candidate.id) ?? ''} onChange={event => chooseCandidate(Number(event.target.value))}>{(!chosen || requiresLyricChoice && candidateId === undefined) && <option value={''} disabled>选择歌词版本</option>}{lyricVersions.map((candidate: LyricCandidate) => <option key={candidate.id} value={candidate.id}>{candidate.title} · {candidate.album || '未知版本'} · {candidate.artist} · {formatTime(candidate.duration)}</option>)}</select></label>}
+                {videoLyricReview && candidateId === undefined && <p className="wb-hint" role="status">当前只预览首个版本，保存歌词前请先选择版本。</p>}
                 {chosen?.mode === 'plain' && detail.song?.provider !== 'bilibili-video' && <p className="wb-hint" role="status">未核对到这版音频的可用时码，仅供阅读。</p>}
                 {detail.local?.lyricsKind === 'timed' && <p className="wb-lyric-note">正在使用本地同步歌词。</p>}
-                {detail.local?.lyricsKind === 'plain' && <p className="wb-lyric-note">本地歌词没有时码。请选择同版歌词，再单独补齐时码。</p>}
+                {detail.local?.lyricsKind === 'plain' && <p className="wb-lyric-note" role="status">{detail.findingTiming ? '正在查找时码，仍显示本地歌词。'
+                  : detail.timing?.status === 'error' ? detail.timing.message
+                  : detail.timing?.status === 'missing' ? '未找到这版录音可用的时码，已保留本地歌词。'
+                  : detail.timing?.status === 'review' ? '请核对同版歌词，确认后再补齐时码。' : '这份歌词没有时码，播放时不会自动跟唱。'}</p>}
                 {detail.local?.lyricsKind === 'protected' && <p className="wb-lyric-note">已有歌词无法安全读取或配对，原文件未改动。</p>}
               </>} />}
         </div>

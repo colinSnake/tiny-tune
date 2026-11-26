@@ -7,6 +7,7 @@ const safePart = (value: string) => value.length > 0 && !/^[. ]|[. ]$|[\x00-\x1f
   !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value);
 
 type ReleaseFields = Pick<SongSummary, 'provider' | 'releaseId' | 'album' | 'artist'>;
+export const songTitleStem = (title: string) => portableFilenameStem(title) || '未命名歌曲';
 export const songStem = (track: Pick<SongSummary, 'artist' | 'title'>) =>
   portableFilenameStem([track.artist, track.title].filter(Boolean).join(' - ')) || '未命名歌曲';
 

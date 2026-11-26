@@ -323,3 +323,20 @@ test('Jamendo HTTP 200 内的配额错误也触发退避', async t => {
   assert.equal((await server.inject('/api/songs?q=山谷')).statusCode, 429);
   assert.equal(upstream, 1);
 });
+
+
+test('ZIP revalidates lyrics before fetching audio from a stale ready record', async () => {
+  let calls = 0;
+  for (const text of [`[00:01]我喜欢你
+[00:01]wǒ xǐ huān nǐ`, `[00:01]词
+[00:99]坏时码`, `[00:01]<b>词</b>`, `[00:01]�`]) {
+    const catalog = {
+      status: () => ({ configured: true, bundlesEnabled: true }),
+      search: async () => [],
+      detail: async () => ({ downloadUrl: null, track: { provider: 'artist' as const, id: '1', title: '歌', artist: '歌手', album: '', duration: 3, availability: 'ready' as const, sourceUrl: 'https://example.com', licenseUrl: null, previewUrl: null, lyrics: { kind: 'timed' as const, text } } }),
+      audio: async () => { calls++; return audio; },
+    };
+    await assert.rejects(songZip(catalog, '1', new AbortController().signal));
+  }
+  assert.equal(calls, 0);
+});

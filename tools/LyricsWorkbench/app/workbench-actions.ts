@@ -48,7 +48,7 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
     const targets = rows.slice(0, 50);
     let done = 0, pairedLyrics = 0, addedLyrics = 0, standaloneLyrics = 0, existingSongs = 0, existingLyrics = 0;
     const skipped: string[] = [], lyricWarnings: string[] = [];
-    let plainLyrics = 0;
+    let plainLyrics = 0, existingPlainLyrics = 0;
     const files: SavedFileLocation[] = [];
     function recordSave(row: WorkspaceRow, result: SongLocalSaveResult) {
       switch (result.status) {
@@ -56,9 +56,12 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
         case 'lyrics-added': addedLyrics++; break;
         case 'lyrics-saved': standaloneLyrics++; break;
         case 'exists': if (result.audio) existingSongs++; else existingLyrics++; break;
-        case 'conflict': skipped.push(`${row.track.title}：同名文件无法安全配对，未改动`); break;
+        case 'conflict': skipped.push(`${row.track.title}：存在重复来源或同名文件冲突，未改动`); break;
       }
-      if (result.lyricsKind === 'plain' && result.lyrics && result.status !== 'exists') plainLyrics++;
+      if (result.lyricsKind === 'plain' && result.lyrics) {
+        if (result.status === 'exists') existingPlainLyrics++;
+        else plainLyrics++;
+      }
       if (result.coverIssue) lyricWarnings.push(`${row.track.title}：歌曲已保存，投稿封面${result.coverIssue === 'missing' ? '缺失' : '暂时下载失败'}`);
       if (result.lyricsIssue) {
         const reason = result.lyricsIssue === 'review' ? '有多个歌词版本，请选择版本后重试' : result.lyricsIssue === 'unsynced' ? '未核对到这版音频的同步时码'
@@ -102,7 +105,10 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
           const detail = await resolve(row, signal);
           if (mode === 'save' && detail.local) {
             if (detail.local.hasLyrics && detail.local.lyricsKind !== 'plain') { existingLyrics++; continue; }
-            const plan = planLocalWrite(detail.local, detail.result, choices.get(row.key), targets.length === 1 && explicit?.key === row.key ? explicit.approval : undefined);
+            if (detail.local.lyricsKind === 'plain' && detail.timing?.status !== 'review') {
+              skipped.push(`${row.track.title}：已有纯文本，请打开这一首单独查找时码`); continue;
+            }
+            const plan = planLocalWrite(detail.local, detail.timing ?? detail.result, choices.get(row.key), targets.length === 1 && explicit?.key === row.key ? explicit.approval : undefined);
             if (plan.status === 'ready') localChoices.push(plan.choice);
             else {
               const reason = plan.status === 'upgrade-approval' ? '已有纯文本，请打开这一首单独补时码'
@@ -120,7 +126,8 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
             recordSave(row, await jsonRequest<SongLocalSaveResult>('/api/local-library/lyrics-only', signal, { track: row.track, candidateId, lyricScript }));
             continue;
           }
-          const chosen = chooseLyrics(detail.result, choices.get(row.key), detail.track);
+          const candidateId = choices.get(row.key);
+          const chosen = chooseLyrics(candidateId !== undefined && detail.timing?.status === 'review' ? detail.timing : detail.result, candidateId, detail.track);
           if (!chosen || lyricText(chosen.result) === null) { skipped.push(`${row.track.title}：暂无可导出的歌词，或需要选择版本`); continue; }
           texts.push({ track: detail.track, result: chosen.result });
           if (detail.local) locals.set(detail.local.id, detail.local);
@@ -172,6 +179,7 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
       const summary = mode === 'save' ? [done && `已保存 ${done} 首歌曲${pairedLyrics ? `（含 ${pairedLyrics} 份配套歌词）` : ''}`, addedLyrics && `已保存 ${addedLyrics} 首歌词`,
         standaloneLyrics && `已保存 ${standaloneLyrics} 份独立歌词（无音频）`, existingSongs && `${existingSongs} 首已在曲库`, existingLyrics && `${existingLyrics} 份歌词已存在`].filter(Boolean) : [];
       if (plainLyrics) lyricWarnings.push(`${plainLyrics} 份歌词已保存为纯文本（无时码，不进行逐句同步）`);
+      if (existingPlainLyrics) lyricWarnings.push(`${existingPlainLyrics} 份已有歌词是纯文本（无时码，可在本地曲库查找时码）`);
       const limit = rows.length > 50 ? '每次最多处理 50 首，请继续处理剩余歌曲。' : '';
       if (mode === 'save') {
         const notes = skipped.length ? `未处理 ${skipped.length} 首：${skipped.slice(0, 3).join('；')}${skipped.length > 3 ? '…' : '。'}` : '';

@@ -8,7 +8,7 @@ import type { WorkbenchDetail } from './workbench-state';
 import { Icon } from './ui';
 import { plainLyricReading, workbenchSongLabel } from './workbench-reading';
 
-type PlayerProps = { detail: WorkbenchDetail; result: ItemState; lyricScript?: LyricScript; audioFile?: Blob; autoPlay?: boolean; playRequest?: number; onPlaybackChange?: (playing: boolean) => void; lyricStatus?: ReactNode; lyricOptions?: ReactNode; onRetry?: () => void };
+type PlayerProps = { detail: WorkbenchDetail; result: ItemState; lyricScript?: LyricScript; audioFile?: Blob; autoPlay?: boolean; playRequest?: number; onPlaybackChange?: (playing: boolean) => void; lyricStatus?: ReactNode; lyricOptions?: ReactNode; onRetry?: () => void; retryLabel?: string };
 function PlayerStandby({ message, onOpen }: { message: string; onOpen?: () => void }) {
   const content = <><span className="wb-stage-mark"><Icon name={onOpen ? 'play' : 'headphones'} size={25} /></span><span>{message}</span></>;
   return onOpen ? <button type="button" className="wb-stage-placeholder wb-stage-open" onClick={onOpen}>{content}</button>
@@ -29,7 +29,7 @@ export function WorkbenchPlayerWaiting({ searching, submitted }: { searching: bo
   </div>;
 }
 
-export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScript, audioFile, autoPlay, playRequest, onPlaybackChange, lyricStatus, lyricOptions, onRetry }: PlayerProps) {
+export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScript, audioFile, autoPlay, playRequest, onPlaybackChange, lyricStatus, lyricOptions, onRetry, retryLabel = '重新查词' }: PlayerProps) {
   const [blobUrl, setBlobUrl] = useState<string>();
   useEffect(() => {
     if (!audioFile) { setBlobUrl(undefined); return; }
@@ -39,6 +39,7 @@ export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScri
   const [media, setMedia] = useState<{ url?: string; clock: number; duration: number | null; failed: boolean }>({ clock: 0, duration: null, failed: false });
   const [playing, setPlaying] = useState(false);
   const [follow, setFollow] = useState(true);
+  const [timelineTailSpace, setTimelineTailSpace] = useState(0);
   const [videoOpen, setVideoOpen] = useState(false);
   const [seekHint, setSeekHint] = useState('');
   const [playbackHint, setPlaybackHint] = useState('');
@@ -66,11 +67,21 @@ export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScri
     return () => { element?.pause(); playbackCallback.current?.(false); };
   }, [url]);
   useEffect(() => {
+    const box = timeline.current;
+    if (!box || parsed.cues.length === 0) { setTimelineTailSpace(0); return; }
+    const updateTail = () => setTimelineTailSpace(Math.ceil(box.clientHeight / 2));
+    updateTail();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateTail);
+    observer?.observe(box);
+    window.addEventListener('resize', updateTail);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', updateTail); };
+  }, [parsed.cues.length]);
+  useEffect(() => {
     if (!follow || active < 0) return;
     const box = timeline.current, line = box?.querySelector<HTMLElement>(`[data-line="${active}"]`);
     if (box && line) box.scrollTo({ top: box.scrollTop + line.getBoundingClientRect().top - box.getBoundingClientRect().top - (box.clientHeight - line.clientHeight) / 2,
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-  }, [active, follow, parsed.cues]);
+  }, [active, follow, parsed.cues, timelineTailSpace]);
   function pauseFollowing() {
     const box = timeline.current;
     if (!follow || !canSync || !box || box.scrollHeight <= box.clientHeight) return;
@@ -144,7 +155,7 @@ export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScri
       <div className="wb-lyrics-heading"><h3 id="wb-lyrics-title">歌词</h3>{lyricStatus}
         <div className="wb-lyrics-tools">
           {!follow && canSync && <button className="text-button" type="button" onClick={() => setFollow(true)}>回到当前句</button>}
-          {onRetry && <button className="text-button" type="button" onClick={onRetry}>重新查词</button>}
+          {onRetry && <button className="text-button" type="button" onClick={onRetry}>{retryLabel}</button>}
         </div>
       </div>
       {lyricOptions}
@@ -163,7 +174,8 @@ export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScri
             setSeekHint('该段还未缓冲，请稍后再试。'); return;
           }
           element.currentTime = time; resumeFollowing();
-        }}><span className="wb-lyric-text">{cue.lines.join('\n')}</span></button>)}</div>
+        }}><span className="wb-lyric-text">{cue.lines.join('\n')}</span></button>)}
+        <div className="wb-lyric-tail-space" aria-hidden="true" style={{ blockSize: `${timelineTailSpace}px` }} /></div>
     </div> : plain ? <div className="timeline plain wb-timeline" aria-label="纯文本歌词" role="region" tabIndex={0}>
       <div className="wb-lyric-reading wb-lyric-text wb-stanzas">{plain.stanzas.map((verse, i) => <p key={i}>{verse.map((line, j) => <Fragment key={j}>{j > 0 && <br />}{line}</Fragment>)}</p>)}</div>
     </div>

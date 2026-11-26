@@ -88,3 +88,10 @@ test('timed lyrics show only the words in either script without changing the sou
   assert.match(original, /<span[^>]*>愛與聲音<\/span>[\s\S]*<span[^>]*>聽見原詞<\/span>/);
   assert.equal(candidate.synced, synced);
 });
+
+test('timed lyric content includes a trailing scroll area for the final active lines', () => {
+  const timed = { status: 'timed' as const, candidate: { id: 1, title: track.title, artist: track.artist, album: '', duration: 236,
+    instrumental: false, synced: '[00:01.00]第一句\n[00:04.00]第二句', plain: '第一句\n第二句' } };
+  const html = renderToStaticMarkup(createElement(WorkbenchPlayer, { detail, result: timed }));
+  assert.match(html, /wb-lyric-tail-space/);
+});

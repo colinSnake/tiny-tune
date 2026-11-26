@@ -47,3 +47,17 @@ test('a lookup hint cannot override a conflicting collection performer or rename
   assert.deepEqual(videoPostLyricIdentity(raw, '周杰倫'), { title: '告白气球', artist: '周杰伦' });
   assert.equal(videoPostLyricIdentity(raw, '另一位歌手'), undefined);
 });
+
+test('a bracketed artist corroborated by a part credit wins over collection descriptors', () => {
+  const collection = '精选【陈势安】经典歌曲合集！分集播放，带歌词，无损音质，推荐收藏！！！';
+  assert.deepEqual(videoSongIdentity('天后-陈势安', collection), { title: '天后', artist: '陈势安' });
+  assert.deepEqual(videoSongIdentity('2. 心之所往 - 陈势安-', collection), { title: '心之所往', artist: '陈势安' });
+  assert.deepEqual(videoSongIdentity('2. 天后 - 另一位歌手', collection), { title: '天后', artist: '另一位歌手' });
+  assert.deepEqual(videoSongIdentity('1. 天后', '【国语】经典歌曲合集'), { title: '天后', artist: '' });
+  assert.deepEqual(videoSongIdentity('天后 - 经典'), { title: '天后 - 经典', artist: '' });
+});
+
+test('an explicitly named Zhang Jie credit takes precedence over a conflicting collection title', () => {
+  assert.deepEqual(videoSongIdentity('张杰 - 铭记', '铭记华语歌曲合集'), { title: '铭记', artist: '张杰' });
+  assert.deepEqual(videoSongIdentity('张杰 - 天下', '天下怀旧金曲合集'), { title: '天下', artist: '张杰' });
+});

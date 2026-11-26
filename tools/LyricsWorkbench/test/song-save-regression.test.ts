@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { videoSongIdentity } from '../src/video-lyrics';
 import { saveSongLocally } from '../src/song-local-save';
+import { tagSongMp3 } from '../src/song-metadata';
+import { BilibiliDiscovery } from '../src/bilibili-discovery';
+import { createServer } from '../src/server';
 import type { SongDetail } from '../src/song-types';
 const recording: SongDetail = { provider: 'bilibili-video', id: 'BV1FPjy6TEiE-1', title: '晴天', artist: '周杰伦', album: '合集 · 第 1 P', duration: 270,
   availability: 'audio-only', sourceUrl: 'https://www.bilibili.com/video/BV1FPjy6TEiE/', licenseUrl: null, previewUrl: null, lyrics: null };
@@ -21,8 +24,8 @@ test('an explicitly matched video lyric is saved as plain text without pretendin
   t.after(() => rm(root, { recursive: true, force: true }));
   const result = await saveSongLocally(root, { ...recording, lyrics: { kind: 'plain', text: `測試歌詞
 第二行` } }, Buffer.from('fixture-recording'));
-  assert.equal(result.audio, '周杰伦/周杰伦 - 晴天.mp3');
-  assert.equal(result.lyrics, '周杰伦/周杰伦 - 晴天.lrc');
+  assert.equal(result.audio, '周杰伦/晴天.mp3');
+  assert.equal(result.lyrics, '周杰伦/晴天.lrc');
   assert.equal(result.lyricsIssue, undefined);
   assert.equal(await readFile(join(root, result.lyrics!), 'utf8'), `测试歌词
 第二行`);
@@ -36,6 +39,88 @@ test('manually arranged audio remains byte-identical on same-name conflicts', as
   assert.equal(result.status, 'conflict');
   assert.equal(await readFile(join(root, '周杰伦/周杰伦 - 晴天.mp3'), 'utf8'), 'my different recording');
   assert.deepEqual(await readdir(join(root, '周杰伦')), ['周杰伦 - 晴天.mp3']);
+});
+
+async function videoSaveFixture(t: import('node:test').TestContext) {
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-video-dedupe-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const audio = (marker: number) => Buffer.concat(Array.from({ length: 306 }, () => {
+    const frame = Buffer.alloc(417); frame.set([255, 251, 144, 100]); frame[50] = marker; return frame;
+  }));
+  const current = audio(1), different = audio(2);
+  const track = { provider: 'bilibili-video', id: 'BV1WCdhYgEmm-1', title: '天后', artist: '陈势安' } as const;
+  let fetches = 0;
+  const bilibiliVideos = new BilibiliDiscovery({ spacing: 0, media: { available: true, audio: async () => { fetches++; return current; } },
+    request: async () => Response.json({ code: 0, data: { bvid: 'BV1WCdhYgEmm',
+      title: '精选【陈势安】经典歌曲合集！分集播放，带歌词，无损音质，推荐收藏！！！',
+      state: 0, rights: { download: 1 }, pages: [{ page: 1, cid: 31, part: '天后-陈势安', duration: 8 },
+        { page: 2, cid: 32, part: '心之所往-陈势安', duration: 8 }] } }) });
+  const app = await createServer({ bilibiliVideos, localLibraryRoot: root, localLyricSearch: async () => [] });
+  t.after(() => app.close());
+  const headers = { host: '127.0.0.1:9120', origin: 'http://127.0.0.1:9120' };
+  const place = async (folder: string, name: string, bytes: Buffer) => {
+    const dir = join(root, folder);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, `${name}.mp3`), bytes);
+    await writeFile(join(dir, `${name}.lrc`), '测试原歌词');
+  };
+  const save = async () => {
+    const res = await app.inject({ method: 'POST', url: `/api/songs/${track.provider}/${track.id}/save`, headers, payload: {} });
+    assert.equal(res.statusCode, 200, res.body);
+    return res.json();
+  };
+  return { root, track, current, different, place, save, fetches: () => fetches };
+}
+
+test('a source-tagged video with wrong legacy title and artist is reused at its actual location', async t => {
+  const f = await videoSaveFixture(t);
+  const old = tagSongMp3(f.current, { ...f.track, title: '天后-陈势安', artist: '经典' });
+  await f.place('旧分类', '我改过的文件名', old);
+  assert.deepEqual(await f.save(), { status: 'exists', audio: '旧分类/我改过的文件名.mp3', lyrics: '旧分类/我改过的文件名.lrc', lyricsKind: 'plain' });
+  assert.equal(f.fetches(), 0);
+  assert.deepEqual(await readdir(f.root), ['旧分类']);
+  assert.deepEqual(await readFile(join(f.root, '旧分类/我改过的文件名.mp3')), old);
+});
+
+test('multiple copies with the same source ID are flagged without writing or choosing a path', async t => {
+  const f = await videoSaveFixture(t);
+  const old = tagSongMp3(f.current, { ...f.track, artist: '旧署名' });
+  await f.place('旧目录一', '文件一', old);
+  await f.place('旧目录二', '文件二', old);
+  assert.deepEqual(await f.save(), { status: 'conflict' });
+  assert.equal(f.fetches(), 0);
+  assert.deepEqual((await readdir(f.root)).sort(), ['旧目录一', '旧目录二']);
+});
+
+test('an equally long recording from a different video is not mistaken for the requested video', async t => {
+  const f = await videoSaveFixture(t);
+  const other = tagSongMp3(f.different, { ...f.track, id: 'BV1FPjy6TEiE-1' });
+  await f.place('收藏', '另一个版本', other);
+  const result = await f.save();
+  assert.equal(result.status, 'saved');
+  assert.equal(result.audio, '陈势安/天后.mp3');
+  assert.equal(f.fetches(), 1);
+  assert.deepEqual(await readFile(join(f.root, '收藏/另一个版本.mp3')), other);
+});
+
+test('a different recording in the intended slot is a conflict even if it already has a sidecar', async t => {
+  const f = await videoSaveFixture(t);
+  const other = tagSongMp3(f.different, { title: f.track.title, artist: f.track.artist });
+  await f.place('陈势安', '天后', other);
+  assert.deepEqual(await f.save(), { status: 'conflict' });
+  assert.equal(f.fetches(), 1);
+  assert.deepEqual(await readFile(join(f.root, '陈势安/天后.mp3')), other);
+  assert.equal(await readFile(join(f.root, '陈势安/天后.lrc'), 'utf8'), '测试原歌词');
+});
+
+test('an untagged copy moved by the user is reused only after comparing its MP3 audio', async t => {
+  const f = await videoSaveFixture(t);
+  const metadata = { title: f.track.title, artist: f.track.artist };
+  await f.place('收藏', '一个副本', tagSongMp3(f.current, metadata));
+  await f.place('收藏', '另一录音', tagSongMp3(f.different, metadata));
+  assert.deepEqual(await f.save(), { status: 'exists', audio: '收藏/一个副本.mp3', lyrics: '收藏/一个副本.lrc', lyricsKind: 'plain' });
+  assert.equal(f.fetches(), 1);
+  assert.deepEqual(await readdir(f.root), ['收藏']);
 });
 
 test('a real video save embeds title, artist and post cover and follows a manually renamed copy', async t => {
@@ -64,8 +149,8 @@ test('a real video save embeds title, artist and post cover and follows a manual
   const response = await save();
   assert.equal(response.statusCode, 200, response.body);
   const saved = response.json();
-  assert.equal(saved.audio, '周杰伦/周杰伦 - 晴天.mp3');
-  assert.equal(saved.lyrics, '周杰伦/周杰伦 - 晴天.lrc');
+  assert.equal(saved.audio, '周杰伦/晴天.mp3');
+  assert.equal(saved.lyrics, '周杰伦/晴天.lrc');
   assert.equal(saved.lyricsKind, 'plain');
   assert.equal(await readFile(join(root, saved.lyrics), 'utf8'), '测试歌词');
   const { LocalMusicLibrary } = await import('../src/local-library');
@@ -148,4 +233,127 @@ test('an invalid or unavailable post cover does not prevent tagged audio or writ
     assert.equal(source.coverIssue, mode === 'untrusted' ? 'missing' : 'unavailable');
     assert.equal(coverRequests, mode === 'untrusted' ? 0 : 1);
   }
+});
+
+test('a credited 许嵩 collection saves 素颜 by title and recognizes the old tagged filename', async t => {
+  const { BilibiliDiscovery } = await import('../src/bilibili-discovery');
+  const { createServer } = await import('../src/server');
+  const { tagSongMp3 } = await import('../src/song-metadata');
+  const { parseBuffer } = await import('music-metadata');
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-save-duet-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const frame = Buffer.alloc(417); frame.set([255, 251, 144, 100]);
+  const bytes = Buffer.concat(Array.from({ length: 306 }, () => frame));
+  const bvid = 'BV1k3411f7mX', id = `${bvid}-3`;
+  let downloads = 0;
+  const discovery = new BilibiliDiscovery({ spacing: 0, media: { available: true, audio: async () => { downloads++; return bytes; } },
+    request: async () => Response.json({ code: 0, data: { bvid, title: '许嵩经典歌曲合集', state: 0, rights: { download: 1 },
+      pages: [{ page: 1, cid: 1, part: '灰色头像', duration: 8 }, { page: 3, cid: 3, part: '素颜-许嵩/何曼婷', duration: 8 }] } }) });
+  const app = await createServer({ bilibiliVideos: discovery, localLibraryRoot: root,
+    localLyricSearch: async () => [{ id: 31, title: '素颜', artist: '许嵩', album: '', duration: 8, instrumental: false, synced: '', plain: '合成测试唱词' }] });
+  t.after(() => app.close());
+  const headers = { host: '127.0.0.1:9120', origin: 'http://127.0.0.1:9120' };
+  const request = (mode: string) => app.inject({ method: 'POST', url: `/api/songs/bilibili-video/${id}/${mode}`, headers, payload: {} });
+  const detail = await app.inject({ url: `/api/songs/bilibili-video/${id}` });
+  assert.equal(detail.json().track.title, '素颜');
+  const result = await request('save');
+  assert.equal(result.statusCode, 200, result.body);
+  assert.equal(result.json().audio, '许嵩/素颜.mp3');
+  assert.equal(result.json().lyrics, '许嵩/素颜.lrc');
+  assert.equal(await readFile(join(root, '许嵩/素颜.lrc'), 'utf8'), '合成测试唱词');
+  const embedded = await parseBuffer(await readFile(join(root, '许嵩/素颜.mp3')), { mimeType: 'audio/mpeg' });
+  assert.equal(embedded.common.title, '素颜');
+  assert.equal(embedded.common.artist, '许嵩');
+  const attachment = await request('mp3');
+  assert.equal(attachment.statusCode, 200, attachment.body);
+  assert.match(decodeURIComponent(String(attachment.headers['content-disposition'])), /filename\*=UTF-8''素颜\.mp3$/);
+
+  await rm(join(root, '许嵩/素颜.mp3'));
+  await rm(join(root, '许嵩/素颜.lrc'));
+  const legacyStem = '许嵩/收藏/许嵩 - 素颜-许嵩 何曼婷';
+  await mkdir(join(root, '许嵩/收藏'));
+  await writeFile(join(root, `${legacyStem}.mp3`), tagSongMp3(bytes, { title: '素颜-许嵩/何曼婷', artist: '许嵩', id, provider: 'bilibili-video' }));
+  await writeFile(join(root, `${legacyStem}.lrc`), '已有歌词');
+  const again = (await request('save')).json();
+  assert.equal(again.status, 'exists');
+  assert.equal(again.audio, `${legacyStem}.mp3`);
+  assert.equal(await readFile(join(root, again.lyrics), 'utf8'), '已有歌词');
+  assert.equal(downloads, 2, 'one local save and one browser attachment; no download for the existing copy');
+  assert.deepEqual(await readdir(join(root, '许嵩')), ['收藏']);
+});
+
+test('credit parsing leaves an uncredited slash title and a recording version intact', async () => {
+  const { videoSongIdentity } = await import('../src/video-lyrics');
+  const album = '许嵩经典歌曲合集';
+  assert.deepEqual(videoSongIdentity('黑/白 - 许嵩', album), { title: '黑/白', artist: '许嵩' });
+  assert.deepEqual(videoSongIdentity('许嵩/何曼婷 - 素颜（Live）', album), { title: '素颜（Live）', artist: '许嵩' });
+  assert.deepEqual(videoSongIdentity('灰色头像 - 无损/高清', album), { title: '灰色头像 - 无损/高清', artist: '许嵩' });
+});
+
+test('the 陈势安 collection saves 天后 under the credited artist, not the tag 经典', async t => {
+  const { BilibiliDiscovery } = await import('../src/bilibili-discovery');
+  const { createServer } = await import('../src/server');
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-save-chen-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bvid = 'BV1WCdhYgEmm';
+  const discovery = new BilibiliDiscovery({ spacing: 0, media: { available: true, audio: async () => Buffer.from('test MP3 payload') },
+    request: async () => Response.json({ code: 0, data: { bvid, state: 0, rights: { download: 1 },
+      title: '精选【陈势安】经典歌曲合集！分集播放，带歌词，无损音质，推荐收藏！！！',
+      pages: [{ page: 1, cid: 11, part: '天后-陈势安', duration: 291 }, { page: 2, cid: 12, part: '心之所往 - 陈势安-', duration: 184 }] } }) });
+  const app = await createServer({ bilibiliVideos: discovery, localLibraryRoot: root, localLyricSearch: async () => [] });
+  t.after(() => app.close());
+  const result = await app.inject({ method: 'POST', url: `/api/songs/bilibili-video/${bvid}-1/save`,
+    headers: { host: '127.0.0.1:9120', origin: 'http://127.0.0.1:9120' }, payload: {} });
+  assert.equal(result.statusCode, 200, result.body);
+  assert.equal(result.json().audio, '陈势安/天后.mp3');
+  assert.deepEqual(await readdir(root), ['陈势安']);
+  assert.deepEqual(await readdir(join(root, '陈势安')), ['天后.mp3']);
+});
+
+test('a Zhang Jie part credit is not overwritten by a song name in the collection title', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-save-zhangjie-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bvid = 'BV1zJieTes01';
+  const frame = Buffer.alloc(417); frame.set([255, 251, 144, 100]);
+  const bytes = Buffer.concat(Array.from({ length: 306 }, () => frame));
+  const discovery = new BilibiliDiscovery({ spacing: 0, media: { available: true, audio: async () => bytes },
+    request: async () => Response.json({ code: 0, data: { bvid, title: '铭记华语歌曲合集', state: 0, rights: { download: 1 },
+      pages: [{ page: 1, cid: 31, part: '张杰 - 铭记', duration: 250 }, { page: 2, cid: 32, part: '张杰 - 天下', duration: 219 }] } }) });
+  const app = await createServer({ bilibiliVideos: discovery, localLibraryRoot: root, localLyricSearch: async () => [] });
+  t.after(() => app.close());
+  const headers = { host: '127.0.0.1:9120', origin: 'http://127.0.0.1:9120' };
+  const detail = await app.inject({ url: `/api/songs/bilibili-video/${bvid}-1` });
+  assert.equal(detail.json().track.title, '铭记');
+  assert.equal(detail.json().track.artist, '张杰');
+  const saved = await app.inject({ method: 'POST', url: `/api/songs/bilibili-video/${bvid}-1/save`, headers, payload: {} });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.equal(saved.json().audio, '张杰/铭记.mp3');
+  const { parseBuffer } = await import('music-metadata');
+  const metadata = await parseBuffer(await readFile(join(root, '张杰/铭记.mp3')), { mimeType: 'audio/mpeg' });
+  assert.equal(metadata.common.title, '铭记');
+  assert.equal(metadata.common.artist, '张杰');
+});
+
+test('an unspaced Wang Leehom single credit is recognized and saved under the artist folder', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-save-wang-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bvid = 'BV1WangLiHon';
+  const discovery = new BilibiliDiscovery({ spacing: 0, media: { available: true, audio: async () => Buffer.from('test MP3 payload') },
+    request: async input => new URL(String(input)).pathname === '/x/web-interface/search/all/v2'
+      ? Response.json({ code: 0, data: { result: [{ result_type: 'video', data: [{ bvid, title: '天地龙鳞-王力宏', typename: '音乐综合', duration: '3:37', author: '测试投稿者' }] }] } })
+      : Response.json({ code: 0, data: { bvid, state: 0, rights: { download: 1 }, title: '天地龙鳞-王力宏',
+        pages: [{ page: 1, cid: 11, part: '天地龙鳞-王力宏', duration: 217 }] } }) });
+  const app = await createServer({ bilibiliVideos: discovery, localLibraryRoot: root, localLyricSearch: async () => [] });
+  t.after(() => app.close());
+  const search = await app.inject(`/api/songs?source=bilibili-video&q=${encodeURIComponent('天地龙鳞-王力宏')}`);
+  assert.equal(search.json().tracks[0].title, '天地龙鳞');
+  assert.equal(search.json().tracks[0].artist, '王力宏');
+  const headers = { host: '127.0.0.1:9120', origin: 'http://127.0.0.1:9120' };
+  const detail = await app.inject({ url: `/api/songs/bilibili-video/${bvid}-1` });
+  assert.equal(detail.json().track.title, '天地龙鳞');
+  assert.equal(detail.json().track.artist, '王力宏');
+  const saved = await app.inject({ method: 'POST', url: `/api/songs/bilibili-video/${bvid}-1/save`, headers, payload: {} });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.equal(saved.json().audio, '王力宏/天地龙鳞.mp3');
+  assert.deepEqual(await readdir(root), ['王力宏']);
 });

@@ -1,10 +1,13 @@
 export type Cue = { ms: number; lines: string[] };
 
+const lyricLines = (source: string) => source.replace(/^\uFEFF/, '').split(/\r\n|[\r\n\u000B\u000C\u0085\u2028\u2029]/);
+export const hasLrcTiming = (source: string) => lyricLines(source).some(line => /^\[\d{1,6}:/u.test(line.trimStart()));
+
 export function parseLrc(source: string): { cues: Cue[]; plain: string } {
   const raw: [number, string][] = [];
   const plain: string[] = [];
   let offset = 0;
-  for (const line of source.replace(/^\uFEFF/, '').split(/\r\n|[\r\n\u000B\u000C\u0085\u2028\u2029]/)) {
+  for (const line of lyricLines(source)) {
     let rest = line.trim();
     const meta = /^\[([A-Za-z]+):([^\]]*)\]$/.exec(rest);
     if (meta) {

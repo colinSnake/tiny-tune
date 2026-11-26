@@ -1,10 +1,13 @@
-import type { LyricCandidate, Track } from './types';
+import type { ItemState, LyricCandidate, LyricResult, Track } from './types';
 import { parseLrc } from './lrc';
 import { matchesVideoLyricIdentity } from './video-lyrics';
 import { candidateResult, normalize } from './match';
 
 export type LocalTrack = Track & { file: string; hasLyrics: boolean; lyricsKind?: 'plain' | 'timed' | 'protected'; confirmTiming?: boolean };
 export type LocalLibrarySearch = { enabled: boolean; root?: string; tracks: LocalTrack[]; limited?: boolean };
+export type TimingLookup = Extract<ItemState, { status: 'review' | 'missing' | 'error' }>;
+export type LocalLyricsLookup = { track: LocalTrack; result: LyricResult; timing?: TimingLookup };
+export type VideoSaveTargets = { conflict: true } | { conflict: false; exact?: string; compare: string[] };
 export type LocalLyricChoice = { id: string; candidateId: number; confirmed: boolean; mode?: 'original' | 'plain'; upgradePlain?: boolean };
 export type LocalSaveStatus = 'saved' | 'exists' | 'changed' | 'review' | 'ambiguous' | 'unsynced' | 'different-lyrics' | 'error';
 export type LocalSaveResult = { id: string; status: LocalSaveStatus; file?: string };

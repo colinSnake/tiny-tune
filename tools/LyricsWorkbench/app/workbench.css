@@ -286,6 +286,7 @@ body:has(.wb-shell) {
 .wb-lyrics-card .wb-timeline::-webkit-scrollbar-thumb { background:var(--wb-stage-track); border-radius:6px; }
 .wb-lyrics-card .wb-timeline.plain { padding:9px 17px 18px; }
 .wb-lyric-line { display:block; width:100%; min-height:32px; padding:6px; border:0; background:transparent; text-align:left; white-space:pre-wrap; }
+.wb-lyric-tail-space { width:100%; flex:none; pointer-events:none; }
 .wb-lyric-line:disabled { opacity:1; cursor:default; }
 .wb-lyric-line:focus-visible { outline-offset:-2px; }
 .wb-lyric-line[aria-current=true] .wb-lyric-text { font-size:16px; color:var(--wb-current-lyric); }

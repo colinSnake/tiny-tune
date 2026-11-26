@@ -2,7 +2,8 @@ import JSZip from 'jszip';
 import { createHash } from 'node:crypto';
 import { BodyTooLarge, readBounded } from './response-body';
 import { SongArchivePaths, songStem } from './song-archive';
-import { parseLrc } from './lrc';
+import { hasLrcTiming, parseLrc } from './lrc';
+import { lyricQualityIssue } from './lyric-quality';
 import { defaultLyricScript, formatLyricText, type LyricScript } from './lyric-script';
 import { RequestQueue, UpstreamError } from './providers';
 import { mp3Duration } from './song-mp3';
@@ -60,8 +61,10 @@ export function parseLyrics(value: unknown, duration: number): { lyrics: SongDet
   if (typeof value !== 'string' || value.length > maxLyrics) return { lyrics: null, conflict: false };
   const text = value.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
   if (!text || /<\/?(?:html|body|script|div|p|br)\b/i.test(text)) return { lyrics: null, conflict: false };
+  const issue = lyricQualityIssue(text, duration);
+  if (issue) return { lyrics: null, conflict: issue === 'timing' };
   const { cues, plain } = parseLrc(text);
-  const hasTiming = /^\s*\[\d{1,6}:\d{1,2}/m.test(text);
+  const hasTiming = hasLrcTiming(text);
   const conflict = hasTiming && !cues.length || cues.some(cue => cue.ms > (duration + 0.5) * 1000);
   return { lyrics: conflict ? null : cues.length ? { kind: 'timed', text } : plain ? { kind: 'plain', text: plain } : null, conflict };
 }
@@ -232,6 +235,8 @@ export async function songZip(catalog: SongCatalog, id: string, signal: AbortSig
   const record = await catalog.detail(id, signal);
   const { track } = record;
   if (track.availability !== 'ready' || !track.lyrics) throw new SongError(songAvailability[track.availability], 409);
+  const verified = parseLyrics(track.lyrics.text, track.duration);
+  if (!verified.lyrics || verified.lyrics.kind !== track.lyrics.kind) throw new SongError('歌词未通过质量校验，请重新选择同版本歌词。', 409);
   const audio = await catalog.audio(record, signal);
   signal.throwIfAborted();
   const stem = songStem(track);

@@ -14,7 +14,7 @@ test('local download preserves artist and verified release folders and never ove
   t.after(() => rm(root, { recursive: true, force: true }));
   const result = await saveSongLocally(root, track, audio);
   assert.equal(result.status, 'saved');
-  assert.equal(result.audio, '原创歌手/真实发行/原创歌手 - 原创歌.mp3');
+  assert.equal(result.audio, '原创歌手/真实发行/原创歌.mp3');
   assert.deepEqual(await readFile(join(root, result.audio!)), audio);
   assert.equal(await readFile(join(root, result.lyrics!), 'utf8'), track.lyrics!.text);
   assert.equal((await saveSongLocally(root, track, Buffer.from('changed'))).status, 'exists');
@@ -69,13 +69,13 @@ test('songs without a verified album use the artist folder and leave legacy down
   t.after(() => rm(root, { recursive: true, force: true }));
   const video: SongDetail = { ...track, provider: 'bilibili-video', title: '新原创曲', album: '合集 · 投稿：某账号', availability: 'audio-only', lyrics: null };
   const saved = await saveSongLocally(root, video, audio, '001. 新原创曲-原创歌手');
-  assert.equal(saved.audio, '原创歌手/原创歌手 - 新原创曲.mp3');
+  assert.equal(saved.audio, '原创歌手/新原创曲.mp3');
   await mkdir(join(root, '未归档歌曲'));
   const legacy = '未归档歌曲/003. 已下载原创曲-原创歌手.mp3';
   await writeFile(join(root, legacy), audio);
-  assert.deepEqual(await saveSongLocally(root, { ...video, title: '已下载原创曲' }, async () => assert.fail('an existing legacy file must not fetch audio again'), '003. 已下载原创曲-原创歌手'),
+  assert.deepEqual(await saveSongLocally(root, { ...video, title: '已下载原创曲' }, async () => audio, '003. 已下载原创曲-原创歌手'),
     { status: 'exists', audio: legacy });
-  assert.deepEqual(await readdir(join(root, '原创歌手')), ['原创歌手 - 新原创曲.mp3']);
+  assert.deepEqual(await readdir(join(root, '原创歌手')), ['新原创曲.mp3']);
 });
 
 test('only identical audio can receive its verified missing sidecar, including in the old directory', async t => {
@@ -111,9 +111,9 @@ test('only-lyrics entries can save under the artist without creating audio, and 
   assert.equal((await call(`http://${host}`, 'other')).statusCode, 400);
   const saved = await call(`http://${host}`, 'original');
   assert.equal(saved.statusCode, 200);
-  const lyrics = '原创歌手/独立歌词/原创歌手 - Intro.lrc';
+  const lyrics = '原创歌手/独立歌词/Intro.lrc';
   assert.deepEqual(saved.json(), { status: 'lyrics-saved', lyrics });
-  assert.deepEqual(await readdir(join(root, '原创歌手', '独立歌词')), ['原创歌手 - Intro.lrc']);
+  assert.deepEqual(await readdir(join(root, '原创歌手', '独立歌词')), ['Intro.lrc']);
   text = '[00:01]不应覆盖';
   assert.deepEqual((await call(`http://${host}`)).json(), { status: 'exists', lyrics });
   assert.equal(await readFile(join(root, lyrics), 'utf8'), '[00:01]原創 Intro');
@@ -180,7 +180,7 @@ test('Bilibili local save requires a deliberate lyric choice when ambiguous and 
     if (title === '阴天') throw new Error('fixture lyric provider unavailable');
     const c = { id: 101, title, artist: track.artist, album: '甲', duration: 8, instrumental: false, synced: '[00:01]原创甲词', plain: '' };
     if (title === '雪天') return [c];
-    return [{ ...c, id: 103, artist: '错误歌手' }, c, { ...c, id: 102, album: '乙', synced: '[00:01]原创乙词' }];
+    return [{ ...c, id: 103, artist: '错误歌手' }, c, { ...c, id: 102, album: '乙', duration: 12, synced: '[00:01]原创乙词' }];
   } });
   t.after(() => app.close());
   const host = '127.0.0.1:9120';
@@ -199,9 +199,11 @@ test('Bilibili local save requires a deliberate lyric choice when ambiguous and 
   assert.equal(await readFile(join(root, existing.json().lyrics), 'utf8'), '原创乙词');
   assert.deepEqual(mp3Payload(await readFile(join(root, existing.json().audio))), mp3);
   assert.equal(audioCalls, 2, 'adding words verifies encoded audio before writing beside a local file');
-  assert.equal((await call(1, 102)).json().status, 'exists');
+  const repeated = (await call(1, 102)).json();
+  assert.equal(repeated.status, 'exists');
+  assert.equal(repeated.lyricsKind, 'plain', 'an existing text-only sidecar must not be reported like a timed one');
   assert.equal(audioCalls, 2, 'complete existing files are never downloaded again');
-  assert.deepEqual(await readdir(join(root, '原创歌手')), ['原创歌手 - 晴天.lrc', '原创歌手 - 晴天.mp3']);
+  assert.deepEqual(await readdir(join(root, '原创歌手')), ['晴天.lrc', '晴天.mp3']);
   const partial = await call(3);
   assert.equal(partial.json().status, 'saved');
   assert.equal(partial.json().lyricsIssue, 'unavailable');
@@ -221,5 +223,44 @@ test('verified audio with plain source lyrics saves a plain sidecar without inve
   assert.equal(result.lyricsIssue, undefined);
   assert.equal(result.lyricsKind, 'plain');
   assert.equal(await readFile(join(root, result.lyrics!), 'utf8'), 'Original words');
-  assert.deepEqual(await readdir(join(root, '原创歌手/真实发行')), ['原创歌手 - 原创歌.lrc', '原创歌手 - 原创歌.mp3']);
+  assert.deepEqual(await readdir(join(root, '原创歌手/真实发行')), ['原创歌.lrc', '原创歌.mp3']);
+});
+
+
+test('local save refuses timing markers in a plain lyric payload', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-song-fake-timing-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const [i, text] of ['[00:01]Unverified timing', 'Words\u2028[00:99]Malformed timing'].entries()) {
+    const result = await saveSongLocally(root, { ...track, title: `曲目${i}`, availability: 'audio-only', lyrics: { kind: 'plain', text } }, audio);
+    assert.equal(result.status, 'saved');
+    assert.equal(result.lyrics, undefined);
+    assert.equal(result.lyricsIssue, 'unsynced');
+  }
+});
+
+
+test('local save revalidates corrupted or annotated lyric payloads before writing sidecars', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-final-lyric-quality-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cases = [
+    `[00:01]我喜欢你
+[00:01]wǒ xǐ huān nǐ`,
+    `[00:01]我喜欢你
+[00:99]我们一起唱歌`,
+    `[00:01]<span>我喜欢你</span>`,
+    `[00:01]我喜欢�你`,
+    `[00:01]我喜欢${String.fromCharCode(0)}你`,
+    `[00:01]` + '词'.repeat(256 * 1024),
+  ];
+  for (const [i, text] of cases.entries()) {
+    const result = await saveSongLocally(root, { ...track, title: `校验${i}`, lyrics: { kind: 'timed', text } }, audio);
+    assert.equal(result.status, 'saved');
+    assert.equal(result.lyrics, undefined);
+    assert.equal(result.lyricsIssue, 'unsynced');
+    assert.deepEqual(await readFile(join(root, result.audio!)), audio);
+  }
+  const plain = await saveSongLocally(root, { ...track, title: '纯文本注音', lyrics: { kind: 'plain', text: `我喜欢你
+wǒ xǐ huān nǐ` } }, audio);
+  assert.equal(plain.lyrics, undefined);
+  assert.equal(plain.lyricsIssue, 'unsynced');
 });

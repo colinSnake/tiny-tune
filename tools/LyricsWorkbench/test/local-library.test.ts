@@ -24,7 +24,7 @@ function wav(title: string, artist = candidate.artist, album = candidate.album, 
     chunk('data', Buffer.alloc(8000 * 2 * 8))]));
 }
 
-async function fixture(t: TestContext, options: { online?: LyricCandidate[]; extra?: (dir: string) => Promise<void> } = {}) {
+async function fixture(t: TestContext, options: { online?: LyricCandidate[]; offline?: boolean; extra?: (dir: string) => Promise<void> } = {}) {
   const parent = await mkdtemp(join(tmpdir(), 'tinytune-local-'));
   const root = join(parent, 'library');
   const dir = join(root, '真实歌手', '实际专辑');
@@ -39,10 +39,15 @@ async function fixture(t: TestContext, options: { online?: LyricCandidate[]; ext
   await writeFile(join(parent, 'outside.wav'), audio);
   await symlink(join(parent, 'outside.wav'), join(root, 'outside.wav'));
   const searches: string[] = [];
-  const app = await createServer({ localLibraryRoot: root, localLyricSearch: async q => { searches.push(q); return options.online ?? [candidate]; } });
+  const app = await createServer({ localLibraryRoot: root, localLyricSearch: async q => {
+    searches.push(q);
+    if (options.offline) throw new Error('Fixture upstream unavailable');
+    return options.online ?? [candidate];
+  } });
   t.after(() => app.close());
   const search = (q = 'Local Singer') => app.inject({ method: 'GET', url: `/api/local-library?q=${encodeURIComponent(q)}`, headers });
-  const lookup = (id: string) => app.inject({ method: 'POST', url: `/api/local-library/${id}/lyrics`, headers, payload: {} });
+  const lookup = (id: string, searchTiming?: boolean) => app.inject({ method: 'POST', url: `/api/local-library/${id}/lyrics`, headers,
+    payload: searchTiming ? { searchTiming } : {} });
   const save = (id: string, candidateId: number, confirmed = false) => app.inject({ method: 'POST', url: '/api/local-library/save', headers,
     payload: { tracks: [{ id, candidateId, confirmed }] } });
   return { app, root, dir, file, lyrics, audio, search, lookup, save, searches };
@@ -123,7 +128,8 @@ test('refuses ambiguous sibling audio names, respects uppercase existing lyrics 
     payload: { tracks: tracks.map(({ id }: { id: string }) => ({ id, candidateId: candidate.id, confirmed: false })) } });
   assert.equal(res.statusCode, 200);
   const statuses = Object.fromEntries(res.json().results.map((row: { id: string; status: string }) => [row.id, row.status]));
-  for (const track of tracks) assert.equal(statuses[track.id], track.file.includes('01 ') ? 'ambiguous' : track.file.includes('02 ') ? 'exists' : 'saved');
+  // No explicit timing request was made for the existing plain file, so no write was approved.
+  for (const track of tracks) assert.equal(statuses[track.id], track.file.includes('01 ') ? 'ambiguous' : track.file.includes('02 ') ? 'review' : 'saved');
   assert.equal(await readFile(join(f.dir, '02 已有.LRC'), 'utf8'), 'existing upper case');
   assert.equal((await readFile(join(f.dir, '03 可写.lrc'), 'utf8')).trim(), text);
   await assert.rejects(readFile(f.lyrics), { code: 'ENOENT' });
@@ -177,6 +183,36 @@ test('a mismatched timeline cannot be attached to local audio, even when explici
   assert.deepEqual(await readFile(f.file), f.audio);
 });
 
+test('local plain lyrics are readable without consulting the provider, including when timing search later fails', async t => {
+  const f = await fixture(t, { offline: true });
+  const original = '用户保留的正文\nSecond fixture line';
+  await writeFile(f.lyrics, original);
+  const [{ id }] = (await f.search()).json().tracks;
+  const local = await f.lookup(id);
+  assert.equal(local.statusCode, 200, local.body);
+  assert.equal(local.json().track.lyricsKind, 'plain');
+  assert.equal(local.json().result.status, 'plain');
+  assert.equal(local.json().result.candidate.plain, original);
+  assert.deepEqual(f.searches, []);
+  const timing = await f.lookup(id, true);
+  assert.equal(timing.statusCode, 200, timing.body);
+  assert.equal(timing.json().timing.status, 'error');
+  assert.equal(timing.json().result.candidate.plain, original);
+  assert.equal(f.searches.length, 1);
+  assert.equal(await readFile(f.lyrics, 'utf8'), original);
+});
+
+test('a timing search with no matching cues keeps displaying the local lyrics', async t => {
+  const f = await fixture(t, { online: [{ ...candidate, title: 'Unrelated song' }, { ...candidate, synced: '', plain: 'no timing' }] });
+  const original = '已保存的歌词';
+  await writeFile(f.lyrics, original);
+  const [{ id }] = (await f.search()).json().tracks;
+  const response = await f.lookup(id, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().timing.status, 'missing');
+  assert.equal(response.json().result.candidate.plain, original);
+});
+
 test('untagged Workbench MP3 names require explicit confirmation and can upgrade matching plain lyrics', async t => {
   const root = await mkdtemp(join(tmpdir(), 'tinytune-canonical-mp3-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -198,10 +234,11 @@ test('untagged Workbench MP3 names require explicit confirmation and can upgrade
   const search = await app.inject({ url: '/api/local-library?q=Local%20Singer', headers });
   const [track] = search.json().tracks;
   assert.equal(track.title, candidate.title);
-  const lookup = await app.inject({ method: 'POST', url: `/api/local-library/${track.id}/lyrics`, headers, payload: {} });
+  const lookup = await app.inject({ method: 'POST', url: `/api/local-library/${track.id}/lyrics`, headers, payload: { searchTiming: true } });
   assert.equal(lookup.json().track.lyricsKind, 'plain');
-  assert.equal(lookup.json().result.status, 'review');
-  assert.deepEqual(lookup.json().result.candidates.map((row: LyricCandidate) => row.id), [candidate.id]);
+  assert.equal(lookup.json().result.candidate.plain, plain);
+  assert.equal(lookup.json().timing.status, 'review');
+  assert.deepEqual(lookup.json().timing.candidates.map((row: LyricCandidate) => row.id), [candidate.id]);
   const save = (confirmed: boolean, upgradePlain = false, candidateId = candidate.id) => app.inject({ method: 'POST', url: '/api/local-library/save', headers,
     payload: { tracks: [{ id: track.id, candidateId, confirmed, upgradePlain }] } });
   assert.equal((await save(false, true)).json().results[0].status, 'review');
@@ -235,7 +272,7 @@ test('explicit upgrade does not replace a different transcript or follow a symli
   const f = await fixture(t);
   const [{ id }] = (await f.search()).json().tracks;
   await writeFile(f.lyrics, 'Custom different words');
-  await f.lookup(id);
+  await f.lookup(id, true);
   const save = () => f.app.inject({ method: 'POST', url: '/api/local-library/save', headers,
     payload: { tracks: [{ id, candidateId: candidate.id, confirmed: true, upgradePlain: true }] } });
   assert.equal((await save()).json().results[0].status, 'different-lyrics');
