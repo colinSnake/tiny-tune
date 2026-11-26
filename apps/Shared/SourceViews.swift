@@ -513,7 +513,7 @@ struct SourcesView: View {
                         }
                     }
                 }
-                .background(TuneTheme.raised, in: .rect(cornerRadius: 22))
+                .tuneCard(cornerRadius: 22)
                 .frame(maxWidth: 720)
                 .padding(.horizontal, 16)
                 .padding(.top, textSize.isAccessibilitySize ? 8 : 54)
@@ -545,7 +545,7 @@ struct SourcesView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 24)
         .frame(maxWidth: 360)
-        .background(TuneTheme.raised, in: .rect(cornerRadius: 22))
+        .tuneCard(cornerRadius: 22)
     }
 
     #else
@@ -563,8 +563,6 @@ struct SourcesView: View {
         }
     }
     #endif
-
-    private func count(_ source: MusicSource) -> Int { app.snapshot.tracks.lazy.filter { $0.rootID == source.id }.count }
 
     @ViewBuilder private func sourceCard(_ source: MusicSource) -> some View {
         let unavailable = app.unavailable.contains(source.id)
@@ -687,10 +685,11 @@ struct SourcesView: View {
     #endif
 
     private func sourceMetadata(_ source: MusicSource, showFolderLabel: Bool = false) -> some View {
-        let songs = Text("\(count(source)) songs")
+        let contents = app.snapshot.contents(for: source.id)
+        let songs = Text("\(contents.tracks.count) songs")
         let detail = showFolderLabel ? Text("Local folder") : Text(source.lastScan, format: .dateTime.month(.abbreviated).day().hour().minute())
-        let missing = app.snapshot.missingTracks.filter { $0.rootID == source.id }
-        let unplayable = app.snapshot.unplayableTracks.filter { $0.rootID == source.id }
+        let missing = contents.missingTracks
+        let unplayable = contents.unplayableTracks
         return VStack(alignment: .leading, spacing: 4) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {

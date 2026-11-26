@@ -2,7 +2,7 @@ import Foundation
 
 public enum RepeatMode: String, Codable, CaseIterable, Sendable { case off, all, one }
 
-/// One playback sequence. Browsing and sorting the library don't change its source order.
+/// One playback sequence anchored to a snapshot of its source order.
 public struct PlaybackQueue: Codable, Equatable, Sendable {
     private static let historyLimit = 4_096
 
@@ -91,6 +91,16 @@ public struct PlaybackQueue: Codable, Equatable, Sendable {
         } else {
             pending = ids
         }
+    }
+
+    /// Switch the pending sequence to a new collection while retaining reachable playback history.
+    package func replacingSourceOrder(with ids: [UUID]) -> PlaybackQueue? {
+        guard let current, ids.contains(current) else { return nil }
+        var replacement = PlaybackQueue(ids: ids, start: current)
+        let missing = Set(history).subtracting(replacement.ids)
+        replacement.history = Self.prunedPath(history, removing: missing, adjacentTo: current)
+        replacement.setShuffle(isShuffled)
+        return replacement
     }
 
     @discardableResult

@@ -70,9 +70,12 @@ public actor ImportedLyricsStore {
 
     /// Best-effort cleanup of our own copies, including leftovers from old catalog removals.
     public func removeUnreferenced(keeping ids: Set<UUID>) {
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { return }
-        for file in files where file.pathExtension == "lrc" {
+        guard !Task.isCancelled, let files = FileManager.default.enumerator(
+            at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]) else { return }
+        for case let file as URL in files {
+            guard !Task.isCancelled else { return }
+            guard file.pathExtension == "lrc" else { continue }
             guard let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent), !ids.contains(id),
                   let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
                   values.isRegularFile == true, values.isSymbolicLink != true else { continue }

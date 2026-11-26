@@ -43,6 +43,17 @@ class CatalogAlbumCardTests(unittest.TestCase):
         self.assertIn('detail: album.showsArtistSubtitle ? artist : nil', album)
         self.assertLess(header.index('Text(countSummary)'), header.index('PlayCollectionButton('))
 
+    def test_macos_album_play_button_uses_compact_native_control_size(self):
+        source = (ROOT / 'apps/Shared/CatalogViews.swift').read_text()
+        artist, album = source.split('struct ArtistDetail:', 1)[1].split('struct AlbumDetail:', 1)
+        album = album.split('private struct GroupHeader:', 1)[0]
+        header = source.split('private struct GroupHeader:', 1)[1].split('private struct PlayCollectionButton:', 1)[0]
+        button = source.split('private struct PlayCollectionButton:', 1)[1].split('#if os(iOS)', 1)[1].split('#endif', 1)[0]
+        self.assertNotIn('usesCompactPlayButton', artist)
+        self.assertIn('usesCompactPlayButton: true', album)
+        self.assertIn('usesCompactSize: usesCompactPlayButton', header)
+        self.assertIn('.controlSize(usesCompactSize ? .regular : .large)', button)
+
     def test_detail_header_keeps_play_all_without_group_removal(self):
         source = (ROOT / 'apps/Shared/CatalogViews.swift').read_text()
         header = source.split('private struct GroupHeader:', 1)[1].split('private struct PlayCollectionButton:', 1)[0]
@@ -69,12 +80,15 @@ class CatalogAlbumCardTests(unittest.TestCase):
         mac_shell, destination = source.split('private struct DestinationContent:', 1)
         self.assertIn('macChrome(nowPlaying: page == .player)', mac_shell)
         self.assertIn('MacLibraryBackground(hasTracks:', mac_shell)
+        self.assertNotIn('MacLibraryBackground(', destination)
         self.assertIn('''#if os(iOS)
-        .background(TuneTheme.canvas)
+        content().phoneLibraryBackground(.browsing)
+        #else
+        content()
         #endif''', destination)
 
     def test_folder_grouping_is_enabled_for_both_native_platforms(self):
         source = (ROOT / 'apps/Shared/AppState.swift').read_text()
-        rebuild = source.split('let names = Dictionary(uniqueKeysWithValues: snapshot.sources.map', 1)[1]
-        rebuild = rebuild.split('return (index,', 1)[0]
-        self.assertEqual(rebuild.count('artistGrouping: .folder'), 2)
+        defaults = source.split('private(set) var snapshot', 1)[1].split('private(set) var starting', 1)[0]
+        self.assertIn('LibraryIndex(snapshot: .init(), foldsQualityVariants: true, artistGrouping: .folder)', defaults)
+        self.assertIn('LibraryIndex(snapshot: .init(), artistGrouping: .folder)', defaults)

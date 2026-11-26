@@ -8,16 +8,23 @@ struct PlaybackSnapshot: Codable, Equatable {
     let position: Double
     let repeatMode: RepeatMode
     let ended: Bool
+    let songsHandoff: SongsHandoff?
 
-    private enum CodingKeys: String, CodingKey {
-        case version, queue, ids, currentID, position, repeatMode, ended
+    struct SongsHandoff: Codable, Equatable {
+        var excludedTrackIDs: Set<UUID> = []
     }
 
-    init(queue: PlaybackQueue, position: Double, repeatMode: RepeatMode, ended: Bool = false) {
+    private enum CodingKeys: String, CodingKey {
+        case version, queue, ids, currentID, position, repeatMode, ended, songsHandoff
+    }
+
+    init(queue: PlaybackQueue, position: Double, repeatMode: RepeatMode, ended: Bool = false,
+         songsHandoff: SongsHandoff? = nil) {
         self.queue = queue
         self.position = position
         self.repeatMode = repeatMode
         self.ended = ended
+        self.songsHandoff = songsHandoff
     }
 
     init(from decoder: any Decoder) throws {
@@ -39,6 +46,7 @@ struct PlaybackSnapshot: Codable, Equatable {
         position = try values.decode(Double.self, forKey: .position)
         repeatMode = try values.decode(RepeatMode.self, forKey: .repeatMode)
         ended = try values.decode(Bool.self, forKey: .ended)
+        songsHandoff = try values.decodeIfPresent(SongsHandoff.self, forKey: .songsHandoff)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -48,6 +56,7 @@ struct PlaybackSnapshot: Codable, Equatable {
         try values.encode(position, forKey: .position)
         try values.encode(repeatMode, forKey: .repeatMode)
         try values.encode(ended, forKey: .ended)
+        try values.encodeIfPresent(songsHandoff, forKey: .songsHandoff)
     }
 
     var isValid: Bool {

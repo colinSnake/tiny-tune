@@ -13,42 +13,110 @@ public struct MusicSource: Identifiable, Equatable, Sendable {
 }
 
 public struct LibrarySnapshot: Sendable {
+    public struct SourceContents: Sendable {
+        public fileprivate(set) var tracks: [Track] = []
+        public fileprivate(set) var missingTracks: [Track] = []
+        public fileprivate(set) var unplayableTracks: [Track] = []
+        let revision = UUID()
+        fileprivate var originalTags: [UUID: MusicTags] = [:]
+        fileprivate var exclusions: Set<String> = []
+        fileprivate var inactiveIDs: Set<UUID> = []
+    }
+
     public let sources: [MusicSource]
     public let tracks: [Track]
     public let missingTracks: [Track]
     public let unplayableTracks: [Track]
-    private let inactiveIDs: Set<UUID>
-    private let originalTags: [UUID: MusicTags]
-    private let exclusions: Set<String>
-    private let exclusionCounts: [UUID: Int]
+    let bySource: [UUID: SourceContents]
 
     public init(sources: [MusicSource] = [], tracks: [Track] = []) {
-        self.init(sources: sources, tracks: tracks, missingTracks: [], unplayableTracks: [], exclusions: [], exclusionCounts: [:], originalTags: [:])
+        let tracks = tracks.sorted(by: MusicOrdering.byTitle)
+        self.init(sources: sources, tracks: tracks, missingTracks: [], unplayableTracks: [],
+                  bySource: Dictionary(grouping: tracks, by: \.rootID)
+                    .mapValues { SourceContents(tracks: $0) })
     }
 
     fileprivate init(sources: [MusicSource], tracks: [Track], missingTracks: [Track], unplayableTracks: [Track],
-                     exclusions: Set<String>, exclusionCounts: [UUID: Int], originalTags: [UUID: MusicTags]) {
+                     bySource: [UUID: SourceContents]) {
         self.sources = sources
         self.tracks = tracks
         self.missingTracks = missingTracks
         self.unplayableTracks = unplayableTracks
-        inactiveIDs = Set(missingTracks.map(\.id)).union(unplayableTracks.map(\.id))
-        self.originalTags = originalTags
-        self.exclusions = exclusions
-        self.exclusionCounts = exclusionCounts
+        self.bySource = bySource
     }
+
+    public func contents(for sourceID: UUID) -> SourceContents { bySource[sourceID] ?? SourceContents() }
 
     public func isExcluded(_ path: RelativeAudioPath, from sourceID: UUID) -> Bool {
-        exclusions.contains(AudioRecord.key(sourceID, path))
+        bySource[sourceID]?.exclusions.contains(AudioRecord.key(sourceID, path)) == true
     }
 
-    public func excludedCount(for sourceID: UUID) -> Int { exclusionCounts[sourceID, default: 0] }
+    public func excludedCount(for sourceID: UUID) -> Int { bySource[sourceID]?.exclusions.count ?? 0 }
 
     /// Raw tags can change without affecting their current presentation (e.g. a newly explicit album credit).
     public func isCurrent(_ track: Track, comparedWith audio: ScannedAudio) -> Bool {
-        !inactiveIDs.contains(track.id) && (audio.embeddedTags == nil || originalTags[track.id] == audio.embeddedTags) &&
+        let source = bySource[track.rootID]
+        return source?.inactiveIDs.contains(track.id) != true &&
+            (audio.embeddedTags == nil || source?.originalTags[track.id] == audio.embeddedTags) &&
             track.automaticMetadata == audio.metadata && track.duration == audio.duration && track.artworkKey == audio.artworkKey
     }
+
+    /// Apply a committed store change to the preceding snapshot, in transaction order.
+    public func applying(_ changes: LibraryChanges) -> LibrarySnapshot {
+        guard !changes.affectedSourceIDs.isEmpty else { return self }
+        let updated = changes.snapshot
+        var contents = bySource
+        for id in changes.affectedSourceIDs { contents[id] = updated.bySource[id] }
+        func replace(_ tracks: [Track], with incoming: [Track]) -> [Track] {
+            let kept = tracks.filter { !changes.affectedSourceIDs.contains($0.rootID) }
+            return Self.merge(kept, incoming, by: MusicOrdering.byTitle)
+        }
+        return .init(sources: (sources.filter { !changes.affectedSourceIDs.contains($0.id) } + updated.sources).sorted(by: Self.sourceOrder),
+                     tracks: replace(tracks, with: updated.tracks), missingTracks: replace(missingTracks, with: updated.missingTracks),
+                     unplayableTracks: replace(unplayableTracks, with: updated.unplayableTracks), bySource: contents)
+    }
+
+    fileprivate static func sourceOrder(_ a: MusicSource, _ b: MusicSource) -> Bool {
+        if a.name.utf8.elementsEqual(b.name.utf8) { return a.id.uuidString < b.id.uuidString }
+        return a.name.utf8.lexicographicallyPrecedes(b.name.utf8)
+    }
+
+    private static func merge(_ kept: [Track], _ incoming: [Track], by before: (Track, Track) -> Bool) -> [Track] {
+        guard !incoming.isEmpty else { return kept }
+        guard !kept.isEmpty else { return incoming }
+        var result: [Track] = []
+        result.reserveCapacity(kept.count + incoming.count)
+        var i = 0
+        // Avoid comparing every historical title for a small import into a large library.
+        if incoming.count <= kept.count / 16 {
+            for track in incoming {
+                var lo = i, hi = kept.count
+                while lo < hi {
+                    let middle = lo + (hi - lo) / 2
+                    if before(track, kept[middle]) { hi = middle } else { lo = middle + 1 }
+                }
+                result.append(contentsOf: kept[i..<lo])
+                result.append(track)
+                i = lo
+            }
+        } else {
+            for track in incoming {
+                while i < kept.count, !before(track, kept[i]) {
+                    result.append(kept[i])
+                    i += 1
+                }
+                result.append(track)
+            }
+        }
+        result.append(contentsOf: kept[i...])
+        return result
+    }
+}
+
+/// Only the affected source projections, including IDs of sources removed in the transaction.
+public struct LibraryChanges: Sendable {
+    public let affectedSourceIDs: Set<UUID>
+    fileprivate let snapshot: LibrarySnapshot
 }
 
 enum SchemaV1: VersionedSchema {
@@ -268,41 +336,73 @@ public actor LibraryStore {
             .filter { !roots.contains($0.rootID) }.forEach(modelContext.delete)
     }
 
-    public func snapshot() throws -> LibrarySnapshot {
-        let sources = try modelContext.fetch(FetchDescriptor<SourceRecord>(sortBy: [SortDescriptor(\.name)])).map(\.value)
-        let sourceNames = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0.name) })
-        let states = try modelContext.fetch(FetchDescriptor<TrackCatalogState>())
-        let stateByID = Dictionary(uniqueKeysWithValues: states.map { ($0.trackID, $0) })
-        let facts = try modelContext.fetch(FetchDescriptor<TrackScanFacts>())
-        let originalTagIDs = Set(facts.filter(\.hasOriginalTags).map(\.trackID))
-        let unplayableIDs = Set(facts.filter(\.unplayable).map(\.trackID))
-        let records = try modelContext.fetch(FetchDescriptor<AudioRecord>())
-        var originalTags: [UUID: MusicTags] = [:]
-        var tracks: [Track] = []
-        var missing: [Track] = []
-        var unplayable: [Track] = []
-        for record in records {
-            let state = stateByID[record.id]
-            let hasOriginalTags = originalTagIDs.contains(record.id)
-            guard let sourceName = sourceNames[record.rootID],
-                  let value = record.value(sourceName: sourceName, state: state,
-                                           hasOriginalTags: hasOriginalTags) else { continue }
-            if hasOriginalTags { originalTags[record.id] = record.storedTags }
-            if state?.missing == true { missing.append(value) }
-            else if unplayableIDs.contains(record.id) { unplayable.append(value) }
-            else { tracks.append(value) }
+    public func snapshot() throws -> LibrarySnapshot { try readSnapshot(for: nil) }
+
+    private func changes(for roots: Set<UUID>) throws -> LibraryChanges {
+        .init(affectedSourceIDs: roots, snapshot: roots.isEmpty ? .init() : try readSnapshot(for: Array(roots)))
+    }
+
+    private func fetch<Model: PersistentModel>(matching roots: [UUID]?,
+                                               predicate: ([UUID]) -> Predicate<Model>) throws -> [Model] {
+        guard let roots else { return try modelContext.fetch(FetchDescriptor<Model>()) }
+        return try stride(from: 0, to: roots.count, by: 250).flatMap { start in
+            let batch = Array(roots[start..<min(start + 250, roots.count)])
+            return try modelContext.fetch(FetchDescriptor<Model>(predicate: predicate(batch)))
         }
-        let exclusions = try modelContext.fetch(FetchDescriptor<ExcludedAudioRecord>())
-            .filter { sourceNames[$0.rootID] != nil }
-        return .init(sources: sources, tracks: tracks.sorted(by: MusicOrdering.byTitle),
-                     missingTracks: missing.sorted(by: MusicOrdering.byTitle),
-                     unplayableTracks: unplayable.sorted(by: MusicOrdering.byTitle),
-                     exclusions: Set(exclusions.map(\.key)),
-                     exclusionCounts: Dictionary(grouping: exclusions, by: \.rootID).mapValues(\.count),
-                     originalTags: originalTags)
+    }
+
+    private func readSnapshot(for roots: [UUID]?) throws -> LibrarySnapshot {
+        let sources = try fetch(matching: roots) { batch in #Predicate<SourceRecord> { batch.contains($0.id) } }
+            .map(\.value).sorted(by: LibrarySnapshot.sourceOrder)
+        let sourceNames = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0.name) })
+        let states = try fetch(matching: roots) { batch in #Predicate<TrackCatalogState> { batch.contains($0.rootID) } }
+        let stateByID = Dictionary(uniqueKeysWithValues: states.map { ($0.trackID, $0) })
+        let facts = try fetch(matching: roots) { batch in #Predicate<TrackScanFacts> { batch.contains($0.rootID) } }
+        let factsByID = Dictionary(uniqueKeysWithValues: facts.map { ($0.trackID, $0) })
+        let records = try fetch(matching: roots) { batch in #Predicate<AudioRecord> { batch.contains($0.rootID) } }
+        var contents = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, LibrarySnapshot.SourceContents()) })
+        var tracks: [Track] = [], missing: [Track] = [], unplayable: [Track] = []
+        for record in records {
+            let id = record.id, root = record.rootID
+            let state = stateByID[id], facts = factsByID[id]
+            let hasOriginalTags = facts?.hasOriginalTags == true
+            guard let sourceName = sourceNames[root],
+                  let value = record.value(sourceName: sourceName, state: state, hasOriginalTags: hasOriginalTags) else { continue }
+            if hasOriginalTags { contents[root]?.originalTags[id] = record.storedTags }
+            if state?.missing == true {
+                missing.append(value)
+                contents[root]?.inactiveIDs.insert(id)
+            } else if facts?.unplayable == true {
+                unplayable.append(value)
+                contents[root]?.inactiveIDs.insert(id)
+            } else { tracks.append(value) }
+        }
+        let exclusions = try fetch(matching: roots) { batch in #Predicate<ExcludedAudioRecord> { batch.contains($0.rootID) } }
+        for record in exclusions { contents[record.rootID]?.exclusions.insert(record.key) }
+        tracks.sort(by: MusicOrdering.byTitle)
+        missing.sort(by: MusicOrdering.byTitle)
+        unplayable.sort(by: MusicOrdering.byTitle)
+        // Per-source slices keep the identical presentation order without sorting twice.
+        let tracksByRoot = Dictionary(grouping: tracks, by: \.rootID)
+        let missingByRoot = Dictionary(grouping: missing, by: \.rootID)
+        let unplayableByRoot = Dictionary(grouping: unplayable, by: \.rootID)
+        for source in sources {
+            contents[source.id]?.tracks = tracksByRoot[source.id] ?? []
+            contents[source.id]?.missingTracks = missingByRoot[source.id] ?? []
+            contents[source.id]?.unplayableTracks = unplayableByRoot[source.id] ?? []
+        }
+        return .init(sources: sources, tracks: tracks, missingTracks: missing, unplayableTracks: unplayable, bySource: contents)
     }
 
     public func confirm(_ draft: ImportDraft) throws -> LibrarySnapshot {
+        try confirm(draft) { _ in try snapshot() }
+    }
+
+    public func confirmChanges(_ draft: ImportDraft) throws -> LibraryChanges {
+        try confirm(draft, project: changes(for:))
+    }
+
+    private func confirm<Result>(_ draft: ImportDraft, project: (Set<UUID>) throws -> Result) throws -> Result {
         // Query before inserting so an implicit upsert cannot replace stable IDs.
         let key = draft.source.identity
         let matches = try modelContext.fetch(FetchDescriptor<SourceRecord>(predicate: #Predicate { $0.identity == key }))
@@ -395,7 +495,7 @@ public actor LibraryStore {
                     facts.unplayable = false
                 }
             }
-            let result = try snapshot()
+            let result = try project([root])
             try modelContext.save()
             return result
         } catch {
@@ -406,9 +506,18 @@ public actor LibraryStore {
 
     /// Only changes the local catalog. Nil, blank or unchanged input uses the automatic value.
     public func setDisplayNames(for id: UUID, title: String?, artist: String?) throws -> LibrarySnapshot {
+        try setDisplayNames(for: id, title: title, artist: artist) { _ in try snapshot() }
+    }
+
+    public func setDisplayNameChanges(for id: UUID, title: String?, artist: String?) throws -> LibraryChanges {
+        try setDisplayNames(for: id, title: title, artist: artist, project: changes(for:))
+    }
+
+    private func setDisplayNames<Result>(for id: UUID, title: String?, artist: String?,
+                                         project: (Set<UUID>) throws -> Result) throws -> Result {
         do {
             guard let record = try modelContext.fetch(FetchDescriptor<AudioRecord>(predicate: #Predicate { $0.id == id })).first else {
-                return try snapshot()
+                return try project([])
             }
             let root = record.rootID
             let source = try modelContext.fetch(FetchDescriptor<SourceRecord>(predicate: #Predicate { $0.id == root })).first
@@ -425,7 +534,7 @@ public actor LibraryStore {
             if state.isEmpty {
                 if existing != nil { modelContext.delete(state) }
             } else if existing == nil { modelContext.insert(state) }
-            let result = try snapshot()
+            let result = try project([root])
             try modelContext.save()
             return result
         } catch {
@@ -438,8 +547,17 @@ public actor LibraryStore {
 
     /// Album and artist removal share one atomic transaction with single-track removal.
     public func removeTracks(_ ids: Set<UUID>) throws -> LibrarySnapshot {
+        try removeTracks(ids) { _ in try snapshot() }
+    }
+
+    public func removeTrackChanges(_ ids: Set<UUID>) throws -> LibraryChanges {
+        try removeTracks(ids, project: changes(for:))
+    }
+
+    private func removeTracks<Result>(_ ids: Set<UUID>, project: (Set<UUID>) throws -> Result) throws -> Result {
         do {
             let requested = Array(ids)
+            var roots = Set<UUID>()
             // Keep SQL bindings bounded even when removing a large catalog group.
             for offset in stride(from: 0, to: requested.count, by: 250) {
                 let batch = Array(requested[offset..<min(offset + 250, requested.count)])
@@ -449,11 +567,12 @@ public actor LibraryStore {
                 try modelContext.fetch(FetchDescriptor<TrackScanFacts>(predicate: #Predicate { batch.contains($0.trackID) }))
                     .forEach(modelContext.delete)
                 for record in records {
+                    roots.insert(record.rootID)
                     modelContext.insert(ExcludedAudioRecord(key: record.key, rootID: record.rootID))
                     modelContext.delete(record)
                 }
             }
-            let result = try snapshot()
+            let result = try project(roots)
             try modelContext.save()
             return result
         } catch {
@@ -464,6 +583,15 @@ public actor LibraryStore {
 
     /// Restore selected, successfully scanned exclusions without applying other scan changes.
     public func restoreExcluded(_ paths: [RelativeAudioPath], from draft: ImportDraft) throws -> LibrarySnapshot {
+        try restoreExcluded(paths, from: draft) { _ in try snapshot() }
+    }
+
+    public func restoreExcludedChanges(_ paths: [RelativeAudioPath], from draft: ImportDraft) throws -> LibraryChanges {
+        try restoreExcluded(paths, from: draft, project: changes(for:))
+    }
+
+    private func restoreExcluded<Result>(_ paths: [RelativeAudioPath], from draft: ImportDraft,
+                                         project: (Set<UUID>) throws -> Result) throws -> Result {
         let identity = draft.source.identity
         guard draft.replaces == nil, !paths.isEmpty,
               let source = try modelContext.fetch(FetchDescriptor<SourceRecord>(predicate: #Predicate { $0.identity == identity })).first else {
@@ -489,7 +617,7 @@ public actor LibraryStore {
                     modelContext.insert(facts)
                 }
             }
-            let result = try snapshot()
+            let result = try project([root])
             try modelContext.save()
             return result
         } catch {
@@ -499,6 +627,14 @@ public actor LibraryStore {
     }
 
     public func removeSource(_ id: UUID) throws -> LibrarySnapshot {
+        try removeSource(id) { _ in try snapshot() }
+    }
+
+    public func removeSourceChanges(_ id: UUID) throws -> LibraryChanges {
+        try removeSource(id, project: changes(for:))
+    }
+
+    private func removeSource<Result>(_ id: UUID, project: (Set<UUID>) throws -> Result) throws -> Result {
         do {
             let tracks = try modelContext.fetch(FetchDescriptor<AudioRecord>(predicate: #Predicate { $0.rootID == id }))
             let sources = try modelContext.fetch(FetchDescriptor<SourceRecord>(predicate: #Predicate { $0.id == id }))
@@ -511,7 +647,7 @@ public actor LibraryStore {
             exclusions.forEach(modelContext.delete)
             sources.forEach(modelContext.delete)
             try removeOrphanedRecords()
-            let result = try snapshot()
+            let result = try project([id])
             try modelContext.save()
             return result
         } catch {

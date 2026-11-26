@@ -37,6 +37,17 @@ public final class Player {
 
     @ObservationIgnored private let engine = AVPlayer()
     private var queue = PlaybackQueue()
+    private struct SongsHandoff {
+        struct Request {
+            var tracks: [Track]
+            let unavailableSourceIDs: Set<UUID>
+        }
+
+        var checkpoint = PlaybackSnapshot.SongsHandoff()
+        var request: Request?
+    }
+
+    @ObservationIgnored private var songsHandoff: SongsHandoff?
     @ObservationIgnored private var tracks: [UUID: Track] = [:]
     @ObservationIgnored private var resolver: Resolver?
     @ObservationIgnored private let artworkURL: ArtworkURLResolver
@@ -91,6 +102,7 @@ public final class Player {
         // otherwise becomes sequential, without changing the current track or position.
         mode = restored.isShuffled ? .shuffle : (saved.repeatMode == .one ? .repeatOne : .sequential)
         if let current {
+            songsHandoff = saved.songsHandoff.map { SongsHandoff(checkpoint: $0) }
             position = saved.position
             duration = current.duration
             phase = saved.ended ? .ended : .paused
@@ -110,7 +122,8 @@ public final class Player {
     private func persistCheckpoint() {
         guard hasCheckpointContext else { return }
         lastCheckpoint = .now
-        let saved = PlaybackSnapshot(queue: queue, position: position, repeatMode: repeatMode, ended: phase == .ended)
+        let saved = PlaybackSnapshot(queue: queue, position: position, repeatMode: repeatMode, ended: phase == .ended,
+                                     songsHandoff: songsHandoff?.checkpoint)
         guard saved != lastSaved else { return }
         // Persistence is best-effort: a write failure must not interrupt playback.
         if (try? snapshotStore.save(saved)) != nil { lastSaved = saved }
@@ -171,26 +184,54 @@ public final class Player {
         load(current)
     }
 
-    public func playAll(_ collection: [Track]) {
+    public func playAll(_ collection: [Track], allowsSongsHandoff: Bool = false) {
         guard let first = collection.first else { return }
-        replaceQueue(with: collection, startingAt: first)
+        replaceQueue(with: collection, startingAt: first, allowsSongsHandoff: allowsSongsHandoff)
     }
 
     /// Activating the paused song from any list resumes its existing queue.
-    public func play(_ track: Track, in collection: [Track]) {
+    public func play(_ track: Track, in collection: [Track], allowsSongsHandoff: Bool = false) {
         if phase == .paused, current?.id == track.id {
             resume()
             return
         }
-        replaceQueue(with: collection, startingAt: track)
+        replaceQueue(with: collection, startingAt: track, allowsSongsHandoff: allowsSongsHandoff)
     }
 
-    private func replaceQueue(with collection: [Track], startingAt track: Track) {
+    /// Opening Songs adopts the library order once per group queue, without reopening the audio.
+    public func continueInSongs(_ collection: [Track], excludingUnavailableSources sourceIDs: Set<UUID> = []) {
+        guard songsHandoff != nil, songsHandoff?.request == nil,
+              phase == .loading || phase == .playing || phase == .paused else { return }
+        songsHandoff?.request = .init(tracks: collection, unavailableSourceIDs: sourceIDs)
+        guard applyRequestedSongsHandoff() else { return }
+        updateUpcoming()
+        checkpoint()
+        publishSystemState()
+    }
+
+    /// Do not rebase an in-flight cursor. Once it settles, keep its committed current track as the anchor.
+    private func applyRequestedSongsHandoff() -> Bool {
+        guard navigation == nil, let handoff = songsHandoff, let request = handoff.request else { return false }
+        songsHandoff?.request = nil
+        let anchor = queue.current
+        // Filter only after the anchor is known: an item that already opened may outlast its source access.
+        let collection = request.tracks.filter {
+            $0.id == anchor || (!request.unavailableSourceIDs.contains($0.rootID) && !handoff.checkpoint.excludedTrackIDs.contains($0.id))
+        }
+        guard let replacement = queue.replacingSourceOrder(with: collection.map(\.id)) else { return false }
+        songsHandoff = nil
+        queue = replacement
+        tracks = Dictionary(collection.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return true
+    }
+
+    private func replaceQueue(with collection: [Track], startingAt track: Track, allowsSongsHandoff: Bool) {
         let selections = collection.contains(where: { $0.id == track.id }) ? collection : [track]
         tracks = Dictionary(selections.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var replacement = PlaybackQueue(ids: selections.map(\.id), start: track.id)
         replacement.setShuffle(mode == .shuffle)
         queue = replacement
+        songsHandoff = allowsSongsHandoff ? SongsHandoff() : nil
         load(track)
     }
 
@@ -245,6 +286,10 @@ public final class Player {
     /// Refresh displayed metadata without touching order, media, or position.
     public func refreshCatalogMetadata(_ libraryTracks: [Track]) {
         guard !tracks.isEmpty else { return }
+        if let requestedSongs = songsHandoff?.request?.tracks {
+            let available = Dictionary(libraryTracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            songsHandoff?.request?.tracks = requestedSongs.map { available[$0.id] ?? $0 }
+        }
         var changed = false
         for track in libraryTracks where tracks[track.id].map({ $0 != track }) == true {
             tracks[track.id] = track
@@ -259,16 +304,19 @@ public final class Player {
 
     public func removeUpcoming(_ id: UUID) {
         guard queue.upcoming.contains(id) else { return }
+        songsHandoff?.checkpoint.excludedTrackIDs.insert(id)
         removeTracks([id])
     }
 
     public func removeTracks(_ ids: Set<UUID>) {
+        songsHandoff?.request?.tracks.removeAll { ids.contains($0.id) }
         guard queue.ids.contains(where: { ids.contains($0) }) else { return }
         let targetRemoved = navigation?.cursor.selectedID.map(ids.contains) ?? false
         navigation?.cursor.removeTracks(ids)
         queue.removeTracks(ids)
         for id in ids { tracks.removeValue(forKey: id) }
         if let current, ids.contains(current.id) {
+            songsHandoff = nil
             clearItem()
             resetNavigation()
             self.current = nil
@@ -362,6 +410,7 @@ public final class Player {
         phase = .loading
         wantsSound = true
         hasCheckpointContext = true
+        _ = applyRequestedSongsHandoff()
         openItem(track, from: start)
         updateUpcoming()
         publishSystemState()
@@ -426,6 +475,7 @@ public final class Player {
                 skippedTrackCount = navigation.skipped
                 self.navigation = nil
                 hasCheckpointContext = true
+                _ = applyRequestedSongsHandoff()
                 updateUpcoming()
             }
             let seconds = item.duration.seconds
@@ -480,6 +530,7 @@ public final class Player {
         resetNavigation()
         phase = current == nil ? .idle : .paused
         wantsSound = false
+        if applyRequestedSongsHandoff() { updateUpcoming() }
     }
 
     private func fail(retrying direction: PlaybackQueue.Direction? = nil) {
@@ -489,6 +540,8 @@ public final class Player {
         retryDirection = direction
         wantsSound = false
         phase = .failed
+        // A navigation that exhausted its old scope can now be retried in Songs, but never autoplay here.
+        if applyRequestedSongsHandoff() { updateUpcoming() }
         publishSystemState()
         persistCheckpoint()
     }

@@ -462,9 +462,12 @@ public enum ArtworkCache {
     }
 
     static func removeUnreferenced(keeping keys: Set<String>, in directory: URL) {
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { return }
-        for file in files where file.pathExtension == "jpg" {
+        guard !Task.isCancelled, let files = FileManager.default.enumerator(
+            at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]) else { return }
+        for case let file as URL in files {
+            guard !Task.isCancelled else { return }
+            guard file.pathExtension == "jpg" else { continue }
             let key = file.deletingPathExtension().lastPathComponent
             guard url(for: key) != nil, !keys.contains(key),
                   let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),

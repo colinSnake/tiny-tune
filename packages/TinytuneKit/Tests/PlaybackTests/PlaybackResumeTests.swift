@@ -8,6 +8,363 @@ import XCTest
 
 final class PlaybackResumeTests: XCTestCase {
     @MainActor
+    func testSingleTrackAlbumContinuesNaturallyInSongsOrder() async throws {
+        let store = try tempStore()
+        let songs = try [track("Before"), track("Album song"), track("Missing"), track("Tail Z"), track("Tail A")]
+        let current = songs[1]
+        let short = try fixture(store, "single-album", seconds: 1)
+        let long = try fixture(store, "songs-tail")
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { track in
+            if track.id == songs[2].id { throw CocoaError(.fileNoSuchFile) }
+            let url = track.id == current.id ? short : long
+            return PlayableResource(url: url, retaining: url)
+        }
+        defer { player.pause() }
+
+        player.play(current, in: [current], allowsSongsHandoff: true)
+        XCTAssertTrue(player.upcoming.isEmpty, "Remain in the album until Songs is opened")
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.current?.id, current.id)
+        XCTAssertEqual(player.upcoming.map(\.id), Array(songs.dropFirst(2).map(\.id)))
+        XCTAssertTrue(player.canGoNext)
+        try await wait { player.phase == .ended || (player.current?.id == songs[3].id && player.phase == .playing) }
+        XCTAssertEqual(player.current?.id, songs[3].id)
+        XCTAssertEqual(player.skippedTrackCount, 1)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[4].id])
+        XCTAssertEqual(try store.load()?.queue.history, [current.id])
+    }
+
+    @MainActor
+    func testSongsHandoffWhilePausedPreservesPositionAndIsOneShot() async throws {
+        let store = try tempStore()
+        let audio = try fixture(store, "paused-handoff")
+        let songs = try [track("Album song"), track("Next"), track("Last")]
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { _ in PlayableResource(url: audio, retaining: audio) }
+        defer { player.pause() }
+
+        player.play(songs[0], in: [songs[0]], allowsSongsHandoff: true)
+        try await wait { player.phase == .playing && player.seekingAvailable }
+        player.pause()
+        player.seek(6)
+        try await wait { player.position >= 5.9 }
+        let position = player.position
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.phase, .paused)
+        XCTAssertEqual(player.position, position)
+        XCTAssertEqual(player.current?.id, songs[0].id)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[1].id, songs[2].id])
+        XCTAssertEqual(try store.load()?.queue.upcoming, [songs[1].id, songs[2].id])
+        player.removeUpcoming(songs[1].id)
+        player.continueInSongs([songs[0], songs[2], songs[1]])
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[2].id], "Reopening Songs does not overwrite an edited queue")
+    }
+
+    @MainActor
+    func testSongsHandoffAtListEndDoesNotWrapOrReorderLater() async throws {
+        let store = try tempStore()
+        let audio = try fixture(store, "last-song", seconds: 1)
+        let songs = try [track("Before"), track("Album song")]
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { _ in PlayableResource(url: audio, retaining: audio) }
+        defer { player.pause() }
+
+        player.play(songs[1], in: [songs[1]], allowsSongsHandoff: true)
+        player.continueInSongs(songs)
+        player.continueInSongs(Array(songs.reversed()))
+        XCTAssertFalse(player.canGoNext)
+        try await wait { player.phase == .ended }
+        XCTAssertEqual(player.current?.id, songs[1].id)
+        XCTAssertTrue(player.upcoming.isEmpty)
+    }
+
+    @MainActor
+    func testSongsHandoffFromMultiTrackAlbumContinuesNaturallyAndKeepsHistory() async throws {
+        let store = try tempStore()
+        let songs = try [track("Earlier in album"), track("Album song"), track("Library next"), track("Album next")]
+        let short = try fixture(store, "album-current", seconds: 1)
+        let long = try fixture(store, "album-other-songs")
+        let probe = CandidateProbe(resources: [songs[0].id: long, songs[1].id: short, songs[2].id: long, songs[3].id: long])
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { try await probe.open($0.id) }
+        defer { player.pause() }
+
+        player.playAll([songs[0], songs[1], songs[3]], allowsSongsHandoff: true)
+        try await wait { player.phase == .playing }
+        player.next()
+        try await wait { player.current?.id == songs[1].id && player.phase == .playing }
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[3].id])
+
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.current?.id, songs[1].id)
+        XCTAssertEqual(player.phase, .playing)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[2].id, songs[3].id])
+        XCTAssertEqual(try store.load()?.queue.history, [songs[0].id])
+        try await wait { player.current?.id != songs[1].id || player.phase == .ended }
+        XCTAssertEqual(player.current?.id, songs[2].id)
+        XCTAssertEqual(player.phase, .playing)
+        let attempts = await probe.attempts
+        XCTAssertEqual(attempts, [songs[0].id, songs[1].id, songs[2].id], "The handoff does not reopen the current audio")
+    }
+
+    @MainActor
+    func testSongsHandoffInShuffleUsesFullSongsListWithoutRepeatingCurrent() async throws {
+        let store = try tempStore()
+        let songs = try [track("Library before"), track("Album song"), track("Library after"), track("Album next")]
+        let short = try fixture(store, "shuffle-current", seconds: 1)
+        let long = try fixture(store, "shuffle-upcoming")
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { track in
+            let url = track.id == songs[1].id ? short : long
+            return PlayableResource(url: url, retaining: url)
+        }
+        defer { player.pause() }
+        player.cyclePlaybackMode()
+        player.cyclePlaybackMode()
+
+        player.play(songs[1], in: [songs[1], songs[3]], allowsSongsHandoff: true)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[3].id])
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.current?.id, songs[1].id)
+        XCTAssertEqual(player.mode, .shuffle)
+        let upcoming = player.upcoming.map(\.id)
+        XCTAssertEqual(upcoming.count, 3)
+        XCTAssertEqual(Set(upcoming), Set([songs[0].id, songs[2].id, songs[3].id]))
+        XCTAssertEqual(try store.load()?.queue.isShuffled, true)
+        player.continueInSongs(Array(songs.reversed()))
+        XCTAssertEqual(player.upcoming.map(\.id), upcoming, "Reopening Songs does not reshuffle")
+        try await wait { player.current?.id != songs[1].id || player.phase == .ended }
+        XCTAssertEqual(player.current?.id, upcoming.first)
+        XCTAssertEqual(player.upcoming.map(\.id), Array(upcoming.dropFirst()))
+    }
+
+    @MainActor
+    func testSongsHandoffInRepeatOneRepeatsCurrentAndUsesSongsForManualNext() async throws {
+        let store = try tempStore()
+        let songs = try [track("Album song"), track("Library next"), track("Album next")]
+        let short = try fixture(store, "repeat-current", seconds: 1)
+        let long = try fixture(store, "repeat-upcoming")
+        let probe = CandidateProbe(resources: [songs[0].id: short, songs[1].id: long, songs[2].id: long])
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { try await probe.open($0.id) }
+        defer { player.pause() }
+        player.cyclePlaybackMode()
+
+        player.play(songs[0], in: [songs[0], songs[2]], allowsSongsHandoff: true)
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.mode, .repeatOne)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[1].id, songs[2].id])
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await probe.attempts.count < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let attempts = await probe.attempts
+        XCTAssertEqual(Array(attempts.prefix(2)), [songs[0].id, songs[0].id])
+        try await wait { player.phase == .playing }
+        XCTAssertEqual(player.current?.id, songs[0].id)
+        player.next()
+        try await wait { player.current?.id == songs[1].id && player.phase == .playing }
+        XCTAssertEqual(player.mode, .repeatOne)
+    }
+
+    @MainActor
+    func testSongsHandoffWaitsForPendingNavigation() async throws {
+        let store = try tempStore()
+        let songs = try [track("Album A"), track("Album B"), track("Library next"), track("Album C"),
+                         track("Removed from library"), track("Unavailable source")]
+        let audio = try fixture(store, "deferred-songs")
+        let probe = CandidateProbe(resources: Dictionary(uniqueKeysWithValues: songs.map { ($0.id, audio) }), suspended: songs[1].id)
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { try await probe.open($0.id) }
+        defer { player.pause() }
+        player.playAll([songs[0], songs[1], songs[3]], allowsSongsHandoff: true)
+        try await wait { player.phase == .playing }
+        player.next()
+        XCTAssertEqual(player.phase, .loading)
+        // The pending track resolves successfully even though its source was marked unavailable by the catalog.
+        player.continueInSongs(songs, excludingUnavailableSources: [songs[1].rootID, songs[5].rootID])
+        player.continueInSongs(Array(songs.reversed()))
+        player.removeTracks([songs[4].id])
+        try await waitForCandidate(probe)
+        await probe.releaseSuspended()
+        try await wait { player.current?.id == songs[1].id && player.phase == .playing }
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[2].id, songs[3].id])
+        XCTAssertEqual(try store.load()?.queue.history, [songs[0].id])
+        let attempts = await probe.attempts
+        XCTAssertEqual(attempts, [songs[0].id, songs[1].id])
+    }
+
+    @MainActor
+    func testSongsHandoffAppliesAfterPausingPendingNavigation() async throws {
+        let store = try tempStore()
+        let songs = try [track("Album A"), track("Library next"), track("Album B")]
+        let audio = try fixture(store, "deferred-pause")
+        let probe = CandidateProbe(resources: Dictionary(uniqueKeysWithValues: songs.map { ($0.id, audio) }), suspended: songs[2].id)
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { try await probe.open($0.id) }
+        defer { player.pause() }
+        player.playAll([songs[0], songs[2]], allowsSongsHandoff: true)
+        try await wait { player.phase == .playing }
+        player.next()
+        player.continueInSongs(songs)
+        try await waitForCandidate(probe)
+        player.pause()
+        await probe.releaseSuspended()
+        XCTAssertEqual(player.phase, .paused)
+        XCTAssertEqual(player.current?.id, songs[0].id)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[1].id, songs[2].id])
+    }
+
+    @MainActor
+    func testSongsHandoffAppliesAfterFailedNavigationWithoutStartingPlayback() async throws {
+        let store = try tempStore()
+        let songs = try [track("Group start"), track("Library next"), track("Failed group next")]
+        let audio = try fixture(store, "deferred-failure")
+        let probe = CandidateProbe(resources: [songs[0].id: audio, songs[1].id: audio], suspended: songs[2].id)
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { try await probe.open($0.id) }
+        defer { player.pause() }
+        player.playAll([songs[0], songs[2]], allowsSongsHandoff: true)
+        try await wait { player.phase == .playing }
+        player.next()
+        player.continueInSongs(songs)
+        try await waitForCandidate(probe)
+        await probe.releaseSuspended()
+        try await wait { player.phase == .failed }
+
+        XCTAssertTrue(player.exhaustedCandidates)
+        XCTAssertEqual(player.current?.id, songs[0].id)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[1].id, songs[2].id])
+        let attemptsBeforeRetry = await probe.attempts
+        XCTAssertEqual(attemptsBeforeRetry, [songs[0].id, songs[2].id])
+
+        player.resume()
+        try await wait { player.current?.id == songs[1].id && player.phase == .playing }
+    }
+
+    @MainActor
+    func testSongsHandoffDoesNotReuseDeferredRequestAfterNewQueue() async throws {
+        let store = try tempStore()
+        let songs = try [track("Old album"), track("Old album next"), track("New album"), track("Library next"), track("New album next")]
+        let audio = try fixture(store, "deferred-replacement")
+        let probe = CandidateProbe(resources: Dictionary(uniqueKeysWithValues: songs.map { ($0.id, audio) }), suspended: songs[1].id)
+        let player = Player(snapshotStore: store)
+        player.volume = 0
+        player.configure { try await probe.open($0.id) }
+        defer { player.pause() }
+        player.playAll(Array(songs.prefix(2)), allowsSongsHandoff: true)
+        try await wait { player.phase == .playing }
+        player.next()
+        player.continueInSongs(songs)
+        try await waitForCandidate(probe)
+        player.playAll([songs[2], songs[4]], allowsSongsHandoff: true)
+        await probe.releaseSuspended()
+        try await wait { player.current?.id == songs[2].id && player.phase == .playing }
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[4].id])
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[3].id, songs[4].id])
+    }
+
+    @MainActor
+    func testSongsHandoffDoesNotReinsertRemovedTrack() throws {
+        let store = try tempStore()
+        let songs = try [track("Group start"), track("Removed from queue"), track("Library next")]
+        let player = Player(snapshotStore: store)
+        player.configure { _ in throw CocoaError(.fileNoSuchFile) }
+        player.playAll(Array(songs.prefix(2)), allowsSongsHandoff: true)
+        player.removeUpcoming(songs[1].id)
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[2].id])
+        XCTAssertFalse(try XCTUnwrap(store.load()).queue.ids.contains(songs[1].id))
+    }
+
+    @MainActor
+    func testSongsHandoffEligibilityAndRemovalSurviveRelaunchOnlyUntilUsed() async throws {
+        let store = try tempStore()
+        let songs = try [track("Group start"), track("Removed from queue"), track("Library next"), track("Group next")]
+        let audio = try fixture(store, "handoff-relaunch")
+        let original = Player(snapshotStore: store)
+        original.volume = 0
+        original.configure { _ in PlayableResource(url: audio, retaining: audio) }
+        original.playAll([songs[0], songs[1], songs[3]], allowsSongsHandoff: true)
+        try await wait { original.phase == .playing }
+        original.pause()
+        original.seek(6)
+        try await wait { original.position >= 5.9 }
+        original.removeUpcoming(songs[1].id)
+
+        let restored = Player(snapshotStore: store)
+        restored.restoreCheckpoint(tracks: songs)
+        let restoredPosition = restored.position
+        XCTAssertGreaterThanOrEqual(restoredPosition, 5.9)
+        restored.continueInSongs(songs)
+        XCTAssertEqual(restored.phase, .paused)
+        XCTAssertEqual(restored.position, restoredPosition)
+        XCTAssertEqual(restored.current?.id, songs[0].id)
+        XCTAssertEqual(restored.upcoming.map(\.id), [songs[2].id, songs[3].id])
+
+        let reopened = Player(snapshotStore: store)
+        reopened.restoreCheckpoint(tracks: songs)
+        reopened.continueInSongs([songs[0], songs[1], songs[3], songs[2]])
+        XCTAssertEqual(reopened.upcoming.map(\.id), [songs[2].id, songs[3].id])
+    }
+
+    @MainActor
+    func testV2CheckpointWithoutHandoffMetadataKeepsItsQueue() throws {
+        let store = try tempStore()
+        let songs = try [track("Current"), track("Library next"), track("Saved next")]
+        let queue = PlaybackQueue(ids: [songs[0].id, songs[2].id])
+        let data = try JSONSerialization.data(withJSONObject: [
+            "version": 2, "queue": JSONSerialization.jsonObject(with: JSONEncoder().encode(queue)),
+            "position": 2.5, "repeatMode": "off", "ended": false,
+        ])
+        try data.write(to: store.url)
+        let player = Player(snapshotStore: store)
+        player.restoreCheckpoint(tracks: songs)
+        player.continueInSongs(songs)
+        XCTAssertEqual(player.position, 2.5)
+        XCTAssertEqual(player.upcoming.map(\.id), [songs[2].id])
+    }
+
+    @MainActor
+    private func waitForCandidate(_ probe: CandidateProbe) async throws {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while !(await probe.isWaiting), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let isWaiting = await probe.isWaiting
+        XCTAssertTrue(isWaiting)
+    }
+
+    @MainActor
+    func testSongsDoesNotReplaceNonAlbumQueues() throws {
+        let store = try tempStore()
+        let songs = try [track("Album song"), track("Album track 2"), track("Library next")]
+        let player = Player(snapshotStore: store)
+        player.configure { _ in throw CocoaError(.fileNoSuchFile) }
+
+        player.play(songs[0], in: [songs[0]], allowsSongsHandoff: true)
+        player.play(songs[1], in: [songs[1]])
+        player.continueInSongs(songs)
+        XCTAssertTrue(player.upcoming.isEmpty, "A new row selection discards album handoff eligibility")
+
+        player.playAll([songs[0]])
+        player.continueInSongs(songs)
+        XCTAssertTrue(player.upcoming.isEmpty, "Play All outside an album keeps its own scope")
+        player.pause()
+    }
+
+    @MainActor
     func testPlayingPausedRowResumesWithoutReplacingQueue() async throws {
         let store = try tempStore()
         let current = try track("Current", album: "First album")

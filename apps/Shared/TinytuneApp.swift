@@ -106,7 +106,8 @@ private struct PhoneShell: View {
                 VStack(spacing: 0) {
                     PhoneRootSummary(subtitle: Text("\(Text("\(app.index.catalogTracks.count) songs")) · \(Text("\(app.index.albums.count) albums"))"))
                     if !app.snapshot.tracks.isEmpty { facetSelector.padding(.top, textSize.isAccessibilitySize ? 0 : 24) }
-                    Catalog(app: app, facet: facet, showSources: showSources)
+                    Catalog(app: app, facet: facet, isVisibleRoot: selectedTab == .library && libraryPath.isEmpty,
+                            showSources: showSources)
                 }
                 .phoneLibraryBackground(libraryBackgroundStyle)
                 .navigationTitle(String(localized: "Music Library", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
@@ -355,7 +356,7 @@ private struct MacShell: View {
         if selection == .sources {
             SourcesView(app: app)
         } else {
-            Catalog(app: app, facet: facet, showSources: showSources)
+            Catalog(app: app, facet: facet, isVisibleRoot: !isSearching && path.isEmpty, showSources: showSources)
         }
     }
 
@@ -561,24 +562,32 @@ private struct DestinationContent: View {
     let sources: () -> Void
 
     var body: some View {
-        Group {
-            switch page {
-            case .artist(let id):
+        switch page {
+        case .artist(let id):
+            browsingDetail {
                 if let artist = app.index.artists.first(where: { $0.id == id }) { ArtistDetail(app: app, artist: artist, showSources: sources) }
                 else { itemUnavailable }
-            case .album(let id):
+            }
+        case .album(let id):
+            browsingDetail {
                 if let album = app.index.albums.first(where: { $0.id == id }) { AlbumDetail(app: app, album: album, showSources: sources) }
                 else { itemUnavailable }
-            case .player:
-                #if os(iOS)
-                NowPlayingView(app: app, showQueue: queue, showSources: sources)
-                #else
-                NowPlayingView(app: app, showSources: sources)
-                #endif
             }
+        case .player:
+            #if os(iOS)
+            NowPlayingView(app: app, showQueue: queue, showSources: sources)
+                .background(TuneTheme.canvas)
+            #else
+            NowPlayingView(app: app, showSources: sources)
+            #endif
         }
+    }
+
+    private func browsingDetail<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         #if os(iOS)
-        .background(TuneTheme.canvas)
+        content().phoneLibraryBackground(.browsing)
+        #else
+        content()
         #endif
     }
 

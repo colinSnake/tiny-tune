@@ -61,9 +61,28 @@ public enum TuneTheme {
 }
 
 public extension View {
-    /// Inset content surface. The caller owns padding; the surface doesn't clip focus or menus.
-    func tuneCard() -> some View {
-        background(TuneTheme.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    /// Inset browsing surface. Only the fill is translucent; the surface doesn't clip focus or menus.
+    func tuneCard(cornerRadius: CGFloat = 16) -> some View {
+        modifier(BrowsingCardBackground(cornerRadius: cornerRadius))
+    }
+}
+
+struct BrowsingCardBackground: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content.background(
+            TuneTheme.raised.opacity(Self.fillOpacity(for: colorScheme, contrast: contrast, reduceTransparency: reduceTransparency)),
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        )
+    }
+
+    nonisolated static func fillOpacity(for scheme: ColorScheme, contrast: ColorSchemeContrast, reduceTransparency: Bool) -> Double {
+        if reduceTransparency || contrast == .increased { return 1 }
+        return scheme == .dark ? 0.78 : 0.68
     }
 }
 

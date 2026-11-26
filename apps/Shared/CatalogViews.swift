@@ -20,6 +20,7 @@ enum Page: Hashable { case artist(String), album(String), player }
 struct Catalog: View {
     let app: AppState
     let facet: Facet
+    let isVisibleRoot: Bool
     let showSources: () -> Void
     @State private var order: SongSort = .title
     #if os(iOS)
@@ -77,6 +78,9 @@ struct Catalog: View {
                     SongRows(app: app, tracks: list, playCollection: list, showSources: showSources)
                 }
             }
+            .onChange(of: showsSongs, initial: true) { _, visible in
+                if visible { app.continueInSongs(songs) }
+            }
             #if os(iOS)
             // Facets have different row lengths and counts. A new scroll container starts
             // at the top without reusing another facet’s offset or resetting song sort.
@@ -84,6 +88,8 @@ struct Catalog: View {
             #endif
         }
     }
+
+    private var showsSongs: Bool { isVisibleRoot && facet == .songs }
 
     private var count: Int {
         switch facet { case .artists: app.index.artists.count; case .albums: app.index.albums.count; case .songs: app.index.catalogTracks.count }
@@ -359,6 +365,7 @@ struct SongRows: View {
     let playCollection: [Track]
     let showSources: () -> Void
     var albumArtwork: URL? = nil
+    var allowsSongsHandoff = false
     #if os(macOS)
     @FocusState private var focused: UUID?
     @State private var selected: UUID?
@@ -377,7 +384,7 @@ struct SongRows: View {
     }
 
     private func row(_ track: Track) -> some View {
-        let play = { app.play(track, in: playCollection) }
+        let play = { app.play(track, in: playCollection, allowsSongsHandoff: allowsSongsHandoff) }
         let state = state(for: track)
         let content = TrackRowContent(title: track.metadata.title, artist: track.displayArtist, duration: timeLabel(track.duration),
                                       state: state?.title, artwork: track.artwork ?? albumArtwork, stateIcon: state?.icon)
@@ -536,10 +543,10 @@ struct ArtistDetail: View {
         let songs = artist.tracks
         CatalogScroll {
             GroupHeader(artwork: artist.artwork, title: artist.name ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale),
-                        detail: groupCount(artist.albums.count, songs.count), app: app, tracks: songs)
+                        detail: groupCount(artist.albums.count, songs.count), app: app, tracks: songs, allowsSongsHandoff: true)
             ForEach(artist.albums) { album in
                 SongRows(app: app, tracks: album.tracks, playCollection: songs,
-                         showSources: showSources, albumArtwork: album.artwork)
+                         showSources: showSources, albumArtwork: album.artwork, allowsSongsHandoff: true)
             }
         }
         .navigationTitle(artist.name ?? String(localized: "Unknown artist", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
@@ -560,11 +567,11 @@ struct AlbumDetail: View {
         CatalogScroll {
             GroupHeader(artwork: artwork, title: album.title ?? String(localized: "Unknown album", bundle: AppLanguage.bundle, locale: AppLanguage.locale),
                         detail: album.showsArtistSubtitle ? artist : nil, app: app, tracks: album.tracks,
-                        countSummary: groupCount(1, album.tracks.count))
+                        countSummary: groupCount(1, album.tracks.count), usesCompactPlayButton: true, allowsSongsHandoff: true)
             ForEach(discs.keys.sorted(), id: \.self) { disc in
                 if discs.count > 1 { Text("Disc \(disc)").font(.headline).accessibilityAddTraits(.isHeader) }
                 SongRows(app: app, tracks: discs[disc] ?? [], playCollection: album.tracks,
-                         showSources: showSources, albumArtwork: artwork)
+                         showSources: showSources, albumArtwork: artwork, allowsSongsHandoff: true)
             }
         }
         .navigationTitle(album.title ?? String(localized: "Unknown album", bundle: AppLanguage.bundle, locale: AppLanguage.locale))
@@ -581,6 +588,8 @@ private struct GroupHeader: View {
     let app: AppState
     let tracks: [Track]
     var countSummary: String? = nil
+    var usesCompactPlayButton = false
+    var allowsSongsHandoff = false
     @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
@@ -612,7 +621,7 @@ private struct GroupHeader: View {
             }
             .font(.subheadline)
             .foregroundStyle(TuneTheme.secondary)
-            PlayCollectionButton(app: app, tracks: tracks)
+            PlayCollectionButton(app: app, tracks: tracks, usesCompactSize: usesCompactPlayButton, allowsSongsHandoff: allowsSongsHandoff)
         }
     }
 }
@@ -620,14 +629,16 @@ private struct GroupHeader: View {
 private struct PlayCollectionButton: View {
     let app: AppState
     let tracks: [Track]
+    var usesCompactSize = false
+    var allowsSongsHandoff = false
 
     var body: some View {
-        Button { app.playAll(tracks) } label: { Label("Play All", systemImage: "play.fill") }
+        Button { app.playAll(tracks, allowsSongsHandoff: allowsSongsHandoff) } label: { Label("Play All", systemImage: "play.fill") }
             #if os(iOS)
             .buttonStyle(CompactPlayCollectionButtonStyle())
             #else
             .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .controlSize(usesCompactSize ? .regular : .large)
             #endif
             .disabled(!tracks.contains { !app.unavailable.contains($0.rootID) })
     }

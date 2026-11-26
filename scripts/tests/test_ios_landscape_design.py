@@ -174,6 +174,30 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         self.assertIn('.id(facet)', catalog)
         self.assertIn('app.index.catalogTracks', catalog)
 
+    def test_browsing_cards_let_artwork_through_without_fading_content(self):
+        source = (ROOT / 'packages/TinytuneKit/Sources/DesignSystem/Components.swift').read_text()
+        card = source.split('func tuneCard(', 1)[1].split('public struct ArtworkTile', 1)[0]
+        self.assertIn('modifier(BrowsingCardBackground(', card)
+        self.assertIn('TuneTheme.raised.opacity(', card)
+        self.assertNotIn('content.opacity(', card)
+
+    def test_phone_source_surfaces_use_browsing_card_fill(self):
+        source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
+        surfaces = source.split('private var phoneBody:', 1)[1].split('private var desktopBody:', 1)[0]
+        self.assertEqual(surfaces.count('.tuneCard(cornerRadius: 22)'), 2)
+        self.assertNotIn('.background(TuneTheme.raised', surfaces)
+
+    def test_phone_details_share_browsing_artwork_but_player_does_not(self):
+        source = (ROOT / 'apps/Shared/TinytuneApp.swift').read_text()
+        destination = source.split('private struct DestinationContent:', 1)[1]
+        self.assertIn('private func browsingDetail', destination)
+        player, helper = destination.split('case .player:', 1)[1].split('private func browsingDetail', 1)
+        for case in ['.artist', '.album']:
+            self.assertIn(f'case {case}(let id):\n            browsingDetail {{', destination)
+        self.assertIn('content().phoneLibraryBackground(.browsing)', helper)
+        self.assertNotIn('phoneLibraryBackground', player)
+        self.assertIn('.background(TuneTheme.canvas)', player)
+
     def test_phone_sources_keep_maintenance_in_menu(self):
         source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
         phone = source.split('private func phoneSourceCard', 1)[1].split('private func desktopSourceCard', 1)[0]
@@ -219,7 +243,7 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         self.assertIn('.frame(minHeight: viewport.size.height)', page)
         card = page.split('private var phoneEmptyState', 1)[1]
         self.assertIn('.multilineTextAlignment(.center)', card)
-        self.assertIn('.background(TuneTheme.raised, in: .rect(cornerRadius: 22))', card)
+        self.assertIn('.tuneCard(cornerRadius: 22)', card)
         self.assertIn('app.choose()', card)
         self.assertIn('.disabled(!app.canImport)', card)
 
@@ -292,8 +316,7 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         button = source.split('private struct PlayCollectionButton: View', 1)[1].split('struct SearchCatalog:', 1)[0]
         self.assertIn('CompactPlayCollectionButtonStyle()', button)
         self.assertIn('.buttonStyle(.borderedProminent)', button)
-        self.assertIn('.controlSize(.large)', button)
-        self.assertIn('app.playAll(tracks)', button)
+        self.assertIn('app.playAll(tracks, allowsSongsHandoff: allowsSongsHandoff)', button)
         self.assertIn('.disabled(!tracks.contains', button)
         compact = button.split('private struct CompactPlayCollectionButtonStyle: ButtonStyle', 1)[1]
         for contract in ['.font(.footnote.weight(.semibold))', '.imageScale(.small)',
@@ -302,6 +325,17 @@ class IOSLandscapeDesignTests(unittest.TestCase):
                          'TuneTheme.accent', 'TuneTheme.onAccent', 'isEnabled']:
             self.assertIn(contract, compact)
         self.assertLess(compact.index('.background('), compact.index('.frame(minWidth: 44, minHeight: 44)'))
+
+    def test_artist_and_album_play_actions_enable_songs_handoff(self):
+        source = (ROOT / 'apps/Shared/CatalogViews.swift').read_text()
+        artist = source.split('struct ArtistDetail: View', 1)[1].split('struct AlbumDetail:', 1)[0]
+        album = source.split('struct AlbumDetail: View', 1)[1].split('private struct GroupHeader:', 1)[0]
+        header = source.split('private struct GroupHeader: View', 1)[1].split('private struct PlayCollectionButton:', 1)[0]
+        rows = source.split('struct SongRows: View', 1)[1].split('struct ArtistDetail:', 1)[0]
+        self.assertEqual(artist.count('allowsSongsHandoff: true'), 2)
+        self.assertEqual(album.count('allowsSongsHandoff: true'), 2)
+        self.assertIn('allowsSongsHandoff: allowsSongsHandoff', header)
+        self.assertIn('app.play(track, in: playCollection, allowsSongsHandoff: allowsSongsHandoff)', rows)
 
     def test_phone_transport_groups_five_icon_controls_with_shared_size(self):
         source = (ROOT / 'apps/Shared/PlayerViews.swift').read_text()

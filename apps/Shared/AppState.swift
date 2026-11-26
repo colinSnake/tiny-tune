@@ -66,7 +66,11 @@ final class AppState {
         ImageRenderer(content: ArtworkTile(size: 512).environment(\.colorScheme, .light)).cgImage
     })
     private(set) var snapshot = LibrarySnapshot()
-    private(set) var index = LibraryIndex(tracks: [])
+    #if os(iOS)
+    private(set) var index = LibraryIndex(snapshot: .init(), foldsQualityVariants: true, artistGrouping: .folder)
+    #else
+    private(set) var index = LibraryIndex(snapshot: .init(), artistGrouping: .folder)
+    #endif
     private(set) var starting = true
     private(set) var storeFailure = false
     private(set) var unavailable = Set<UUID>()
@@ -83,6 +87,7 @@ final class AppState {
 
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var scanner: Task<Void, Never>?
+    @ObservationIgnored private var cacheCleanup: Task<Void, Never>?
     @ObservationIgnored private var health: Task<Void, Never>?
     @ObservationIgnored private var library: LibraryStore?
     let importedLyrics: ImportedLyricsStore
@@ -109,7 +114,12 @@ final class AppState {
                 let candidate = try await LibraryStore.open()
                 let value = try await candidate.snapshot()
                 library = candidate
-                await apply(value, restorePlayback: true)
+                let previousIndex = index
+                let initialIndex = await Task.detached(priority: .userInitiated) {
+                    previousIndex.rebuilding(with: value)
+                }.value
+                publish(value, index: initialIndex)
+                scheduleCacheCleanup()
             } catch { storeFailure = true }
         }
     }
@@ -164,10 +174,14 @@ final class AppState {
         let id = session.id
         let librarySnapshot = snapshot
         let sources = librarySnapshot.sources
-        let libraryTracks = librarySnapshot.tracks + librarySnapshot.missingTracks + librarySnapshot.unplayableTracks
-        let missingIDs = Set(librarySnapshot.missingTracks.map(\.id))
-        let unplayableIDs = Set(librarySnapshot.unplayableTracks.map(\.id))
+        let priorScan = scanner
+        let priorCleanup = cacheCleanup
+        priorCleanup?.cancel()
         scanner = Task { [weak self] in
+            // A cancelled scan may still be unwinding an AVFoundation call or writing a thumbnail.
+            await priorScan?.value
+            await priorCleanup?.value
+            guard !Task.isCancelled else { return }
             let worker = Task.detached(priority: .userInitiated) { [weak self] in
                 try Task.checkCancellation()
                 let candidate: SourceDraft
@@ -195,7 +209,10 @@ final class AppState {
                     }
                     return (report, changes)
                 }
-                let indexedTracks = libraryTracks.filter { $0.rootID == sourceID }
+                let contents = sourceID.map { librarySnapshot.contents(for: $0) }
+                let indexedTracks = contents.map { $0.tracks + $0.missingTracks + $0.unplayableTracks } ?? []
+                let missingIDs = Set(contents?.missingTracks.map(\.id) ?? [])
+                let unplayableIDs = Set(contents?.unplayableTracks.map(\.id) ?? [])
                 let paths = Dictionary(indexedTracks.map { (Data($0.path.rawValue.utf8), $0) },
                                        uniquingKeysWith: { first, _ in first })
                 let isMigration = target.map { $0.identity != candidate.identity } ?? false
@@ -236,10 +253,11 @@ final class AppState {
     }
 
     func cancelFlow() {
-        guard flow?.committing != true else { return }
+        guard let flow, !flow.committing else { return }
         scanner?.cancel()
-        scanner = nil
-        flow = nil
+        // Keep the task until it drains; both idle cleanup and a new scan must wait for it.
+        self.flow = nil
+        scheduleCacheCleanup()
     }
 
     func confirm() {
@@ -258,11 +276,12 @@ final class AppState {
                     try await AudioScanner.verifyUnplayable(unplayable, in: lease)
                     try AudioScanner.verifyAccepted(draft, paths: accepted, in: lease)
                 }.value
-                let result: LibrarySnapshot
-                if let recover { result = try await library.restoreExcluded(recover, from: draft) }
-                else { result = try await library.confirm(draft) }
+                let result: LibraryChanges
+                if let recover { result = try await library.restoreExcludedChanges(recover, from: draft) }
+                else { result = try await library.confirmChanges(draft) }
                 await apply(result)
                 self.flow = nil
+                scheduleCacheCleanup()
             } catch {
                 self.flow?.committing = false
                 self.flow?.requiresRescan = (error as? FolderError) == .scanChanged
@@ -277,9 +296,10 @@ final class AppState {
         Task {
             defer { mutatingLibrary = false }
             do {
-                let result = try await library.removeTrack(track.id)
+                let result = try await library.removeTrackChanges([track.id])
                 await apply(result)
                 await importedLyrics.removeDeletedTracks([track.id])
+                scheduleCacheCleanup()
             } catch {
                 notice = String(localized: "Could not remove the song. The original library is unchanged.", bundle: AppLanguage.bundle, locale: AppLanguage.locale)
             }
@@ -288,15 +308,16 @@ final class AppState {
 
     func remove(_ source: MusicSource) {
         guard let library, canImport else { return }
-        let removedSongIDs = Set((snapshot.tracks + snapshot.missingTracks + snapshot.unplayableTracks)
-            .filter { $0.rootID == source.id }.map(\.id))
+        let contents = snapshot.contents(for: source.id)
+        let removedSongIDs = Set((contents.tracks + contents.missingTracks + contents.unplayableTracks).map(\.id))
         mutatingLibrary = true
         Task {
             defer { mutatingLibrary = false }
             do {
-                let result = try await library.removeSource(source.id)
+                let result = try await library.removeSourceChanges(source.id)
                 await apply(result)
                 await importedLyrics.removeDeletedTracks(removedSongIDs)
+                scheduleCacheCleanup()
             } catch { notice = String(localized: "Could not remove the source. The original library is unchanged.", bundle: AppLanguage.bundle, locale: AppLanguage.locale) }
         }
     }
@@ -306,7 +327,7 @@ final class AppState {
         mutatingLibrary = true
         defer { mutatingLibrary = false }
         do {
-            let result = try await library.setDisplayNames(for: track.id, title: title, artist: artist)
+            let result = try await library.setDisplayNameChanges(for: track.id, title: title, artist: artist)
             await apply(result)
             return true
         } catch { return false }
@@ -316,58 +337,71 @@ final class AppState {
         health?.cancel()
         let sources = snapshot.sources
         let track = player.current
-        health = Task {
-            let (badSources, unreachableTrack) = await Task.detached(priority: .utility) {
-                var badSources = Set<UUID>()
-                var unreachableTrack: UUID?
-                for source in sources {
-                    guard let lease = try? FolderAccess.open(source.bookmark) else {
-                        badSources.insert(source.id)
-                        continue
-                    }
-                    // Only test path metadata, never open or decode the audio on startup.
-                    if let track, track.rootID == source.id, (try? lease.audioURL(for: track.path)) == nil {
-                        unreachableTrack = track.id
-                    }
-                    withExtendedLifetime(lease) {}
+        let worker = Task.detached(priority: .utility) {
+            var badSources = Set<UUID>()
+            var unreachableTrack: UUID?
+            for source in sources {
+                guard !Task.isCancelled else { break }
+                guard let lease = try? FolderAccess.open(source.bookmark) else {
+                    badSources.insert(source.id)
+                    continue
                 }
-                return (badSources, unreachableTrack)
-            }.value
+                // Only test path metadata, never open or decode the audio on startup.
+                if let track, track.rootID == source.id, (try? lease.audioURL(for: track.path)) == nil {
+                    unreachableTrack = track.id
+                }
+                withExtendedLifetime(lease) {}
+            }
+            return (badSources, unreachableTrack)
+        }
+        health = Task {
+            let (badSources, unreachableTrack) = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
             guard !Task.isCancelled else { return }
             unavailable = badSources
             unreachableTrackID = unreachableTrack
         }
     }
 
-    func playAll(_ tracks: [Track]) {
-        player.playAll(playableTracks(in: tracks))
+    func playAll(_ tracks: [Track], allowsSongsHandoff: Bool = false) {
+        player.playAll(playableTracks(in: tracks), allowsSongsHandoff: allowsSongsHandoff)
     }
 
-    func play(_ track: Track, in tracks: [Track]) {
+    func play(_ track: Track, in tracks: [Track], allowsSongsHandoff: Bool = false) {
         guard !unavailable.contains(track.rootID) else {
             notice = String(localized: "This source cannot be read. Open Music Sources and choose the original folder again.", bundle: AppLanguage.bundle, locale: AppLanguage.locale)
             return
         }
-        player.play(track, in: playableTracks(in: tracks))
+        player.play(track, in: playableTracks(in: tracks), allowsSongsHandoff: allowsSongsHandoff)
+    }
+
+    func continueInSongs(_ tracks: [Track]) {
+        player.continueInSongs(tracks, excludingUnavailableSources: unavailable)
     }
 
     private func playableTracks(in tracks: [Track]) -> [Track] {
         tracks.filter { !unavailable.contains($0.rootID) }
     }
 
-    private func apply(_ snapshot: LibrarySnapshot, restorePlayback: Bool = false) async {
-        let previousIDs = Set(self.snapshot.tracks.map(\.id))
-        let (newIndex, removedIDs) = await Task.detached(priority: .userInitiated) {
-            let names = Dictionary(uniqueKeysWithValues: snapshot.sources.map { ($0.id, $0.name) })
-            #if os(iOS)
-            let index = LibraryIndex(tracks: snapshot.tracks, sourceNames: names, foldsQualityVariants: true, artistGrouping: .folder)
-            #else
-            let index = LibraryIndex(tracks: snapshot.tracks, sourceNames: names, artistGrouping: .folder)
-            #endif
-            return (index, previousIDs.subtracting(snapshot.tracks.map(\.id)))
+    private func apply(_ changes: LibraryChanges) async {
+        guard !changes.affectedSourceIDs.isEmpty else { return }
+        let previous = snapshot, previousIndex = index
+        let (snapshot, newIndex, removedIDs, updatedTracks) = await Task.detached(priority: .userInitiated) {
+            let result = previous.applying(changes)
+            var removedIDs = Set<UUID>(), updatedTracks: [Track] = []
+            for root in changes.affectedSourceIDs {
+                let tracks = result.contents(for: root).tracks
+                updatedTracks.append(contentsOf: tracks)
+                let currentIDs = Set(tracks.map(\.id))
+                removedIDs.formUnion(previous.contents(for: root).tracks.lazy.map(\.id).filter { !currentIDs.contains($0) })
+            }
+            return (result, previousIndex.rebuilding(with: result), removedIDs, updatedTracks)
         }.value
         // Publish only when the matching index is ready; mutations are serialized by the app.
         if !removedIDs.isEmpty { player.removeTracks(removedIDs) }
+        publish(snapshot, index: newIndex, updatedTracks: updatedTracks)
+    }
+
+    private func publish(_ snapshot: LibrarySnapshot, index newIndex: LibraryIndex, updatedTracks: [Track]? = nil) {
         self.snapshot = snapshot
         index = newIndex
         unavailable.formIntersection(snapshot.sources.map(\.id))
@@ -379,16 +413,35 @@ final class AppState {
                 return PlayableResource(url: try lease.audioURL(for: track.path), retaining: lease)
             }.value
         }
-        if restorePlayback { player.restoreCheckpoint(tracks: snapshot.tracks) }
-        else { player.refreshCatalogMetadata(snapshot.tracks) }
-        // Missing/unplayable recordings still belong to the library and retain their own assets.
-        let catalog = snapshot.tracks + snapshot.missingTracks + snapshot.unplayableTracks
-        await importedLyrics.removeUnreferenced(keeping: Set(catalog.map(\.id)))
-        let artworkKeys = Set(catalog.compactMap(\.artworkKey))
-        await Task.detached(priority: .utility) {
-            ArtworkCache.removeUnreferenced(keeping: artworkKeys)
-        }.value
+        if let updatedTracks { player.refreshCatalogMetadata(updatedTracks) }
+        else { player.restoreCheckpoint(tracks: snapshot.tracks) }
         verifySources()
+    }
+
+    private func scheduleCacheCleanup() {
+        let previous = cacheCleanup
+        previous?.cancel()
+        let scan = scanner, catalog = snapshot, lyrics = importedLyrics
+        cacheCleanup = Task.detached(priority: .utility) {
+            // Drain any older sweep even if this task is cancelled before it gets to run.
+            // A scanner awaiting the latest cleanup must never overtake an older sweep.
+            await previous?.value
+            // Coalesce successive updates. Startup and import confirmation do not await maintenance.
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            await scan?.value
+            guard !Task.isCancelled else { return }
+            var ids = Set<UUID>(), artwork = Set<String>()
+            // Missing/unplayable recordings still own their lyrics and shared artwork.
+            for tracks in [catalog.tracks, catalog.missingTracks, catalog.unplayableTracks] {
+                for track in tracks {
+                    guard !Task.isCancelled else { return }
+                    ids.insert(track.id)
+                    if let key = track.artworkKey { artwork.insert(key) }
+                }
+            }
+            await lyrics.removeUnreferenced(keeping: ids)
+            ArtworkCache.removeUnreferenced(keeping: artwork)
+        }
     }
 
     func lyrics(for track: Track) async throws -> ImportedLyricsStore.Resolved? {
@@ -400,7 +453,10 @@ final class AppState {
         guard canImport, player.current?.id == track.id else { throw FolderError.unavailable }
         // Serialize with catalog mutations so deleting a track cannot leave a newly imported orphan.
         mutatingLibrary = true
-        defer { mutatingLibrary = false }
+        let cleanup = cacheCleanup
+        cleanup?.cancel()
+        defer { mutatingLibrary = false; scheduleCacheCleanup() }
+        await cleanup?.value
         try await importedLyrics.save(candidate, for: track.id)
     }
 

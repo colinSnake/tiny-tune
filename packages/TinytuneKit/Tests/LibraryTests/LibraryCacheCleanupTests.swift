@@ -49,6 +49,23 @@ final class LibraryCacheCleanupTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: keptFile.path))
     }
 
+    func testCancelledSweepDoesNotRemoveArtworkOrLyrics() async throws {
+        let directory = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copiedLyrics = directory.appending(path: "\(UUID().uuidString).lrc")
+        let artwork = directory.appending(path: "\(String(repeating: "a", count: 64)).jpg")
+        try Data([1]).write(to: copiedLyrics)
+        try Data([1]).write(to: artwork)
+        let lyrics = ImportedLyricsStore(directory: directory)
+        await Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            await lyrics.removeUnreferenced(keeping: [])
+            ArtworkCache.removeUnreferenced(keeping: [], in: directory)
+        }.value
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedLyrics.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artwork.path))
+    }
+
     private func temporaryFolder() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
