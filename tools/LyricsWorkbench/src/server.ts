@@ -368,7 +368,7 @@ export async function createServer(options: ServerOptions = {}) {
       const lyricsBody = request.body as { artistHint?: unknown } | undefined | null;
       return songLyrics(track, signal, provider === 'bilibili-video' ? lyricsBody?.artistHint : undefined);
     });
-    const optionsBody = request.body as { lyricScript?: unknown; alternate?: unknown; candidateId?: unknown } | undefined | null;
+    const optionsBody = request.body as { lyricScript?: unknown; alternate?: unknown; candidateId?: unknown; saveArtistHint?: unknown; confirmUncreditedSave?: unknown } | undefined | null;
     const lyricScript = parseLyricScript(optionsBody?.lyricScript);
     if (!lyricScript) return badInput(reply, '请选择简体中文或保留原文。');
     if (provider === 'bilibili-video' && mode === 'download') return reply.code(409).send({ error: '未核对到同版本歌词，不能打包 ZIP。' });
@@ -405,12 +405,19 @@ export async function createServer(options: ServerOptions = {}) {
         if (mode === 'save') {
           let track: SongDetail, download: () => Promise<Buffer>, legacyVideoTitle: string | undefined;
           let lyricsIssue: SongLocalSaveResult['lyricsIssue'];
+          let saveDirectoryArtist: string | undefined;
           let videoSource: Awaited<ReturnType<BilibiliDiscovery['mp3Source']>> | undefined;
           if (provider === 'bilibili-video' && bilibiliVideos) {
             const result = videoSource = await bilibiliVideos.mp3Source(id, signal);
             track = result.track; download = result.audio; legacyVideoTitle = result.downloadTitle;
+            if (!track.artist.trim()) {
+              const confirmedHint = optionsBody?.confirmUncreditedSave === true && typeof optionsBody.saveArtistHint === 'string'
+                ? videoLyricArtistHint(optionsBody.saveArtistHint) : undefined;
+              if (!confirmedHint) return reply.code(409).send({ error: '投稿没有明确歌手署名。请在页面确认歌手目录，并确认你有权保存完整音频。' });
+              saveDirectoryArtist = confirmedHint;
+            }
             try {
-              const { result: found } = await songLyrics(track, AbortSignal.any([signal, AbortSignal.timeout(12_000)]));
+              const { result: found } = await songLyrics(track, AbortSignal.any([signal, AbortSignal.timeout(12_000)]), saveDirectoryArtist);
               const candidate = found.status === 'plain' ? found.candidate : found.status === 'review'
                 ? found.candidates.find(candidate => candidate.id === optionsBody?.candidateId) : undefined;
               if (candidate?.plain.trim()) track = { ...track, lyrics: { kind: 'plain', text: candidate.plain } };
@@ -419,19 +426,23 @@ export async function createServer(options: ServerOptions = {}) {
               signal.throwIfAborted();
               lyricsIssue = 'unavailable';
             }
+            if (saveDirectoryArtist && !track.lyrics?.text.trim()) {
+              return reply.code(409).send({ error: '未找到通过质量校验的匹配歌词，未写入本地曲库。' });
+            }
           } else {
             const record = await catalog.detail(id, signal);
             if (record.track.availability !== 'ready') return reply.code(409).send({ error: '这版录音未开放整曲与歌词下载。' });
             track = record.track; download = () => catalog.audio(record, signal);
           }
           signal.throwIfAborted();
-          const videoTargets = local && track.provider === 'bilibili-video' && track.artist && track.title ? await local.videoSaveTargets(track) : undefined;
+          const directoryTrack = saveDirectoryArtist ? { ...track, artist: saveDirectoryArtist } : track;
+          const videoTargets = local && directoryTrack.provider === 'bilibili-video' && directoryTrack.artist && directoryTrack.title ? await local.videoSaveTargets(directoryTrack) : undefined;
           const result = await saveSongLocally(options.localLibraryRoot!, track, async () => {
             signal.throwIfAborted();
             const audio = await download();
             signal.throwIfAborted();
             return audio;
-          }, legacyVideoTitle, lyricScript, videoTargets);
+          }, legacyVideoTitle, lyricScript, videoTargets, saveDirectoryArtist);
           if (result.status === 'saved' || result.status === 'lyrics-added') local?.invalidate();
           return { ...result, ...(result.audio && !result.lyrics && lyricsIssue ? { lyricsIssue } : {}),
             ...(result.status === 'saved' && videoSource?.coverIssue ? { coverIssue: videoSource.coverIssue } : {}) };

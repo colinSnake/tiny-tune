@@ -158,7 +158,7 @@ export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScri
           {onRetry && <button className="text-button" type="button" onClick={onRetry}>{retryLabel}</button>}
         </div>
       </div>
-      {detail.lyricLookupHint && <p className="wb-hint" role="status">歌词按“{detail.lyricLookupHint}”查找；这是搜索线索，不是投稿署名。投稿未明确署名时，不会据此自动创建歌手目录或保存。</p>}
+      {detail.lyricLookupHint && <p className="wb-hint" role="status">歌词按“{detail.lyricLookupHint}”查找；这是搜索线索，不是投稿署名。保存未署名投稿时，会要求确认目标歌手目录和音源保存权限。</p>}
       {lyricOptions}
       {(parsed.cues.length > 0 || plain) && <div className="wb-lyrics-info"><div className="wb-lyric-reading">
         <p className="wb-lyric-note">{canSync ? (follow ? '随播放滚动 · 点击歌词跳转' : '已暂停自动滚动 · 当前句仍会高亮') : parsed.cues.length ? '时间轴未与音源核对，仅供阅读' : video ? 'B 站嵌入播放器未提供可用进度，歌词仅供阅读' : '纯文本 · 不自动滚动'}</p>

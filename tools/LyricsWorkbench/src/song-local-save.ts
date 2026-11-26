@@ -136,8 +136,9 @@ async function inspectSong(dir: Directory, folders: string[], stem: string, side
 }
 
 export async function saveSongLocally(root: string, track: SongDetail, source: Buffer | (() => Promise<Buffer>), legacyVideoTitle?: string,
-  lyricScript: LyricScript = defaultLyricScript, videoTargets?: VideoSaveTargets): Promise<SongLocalSaveResult> {
-  if (track.provider === 'bilibili-video' && (!track.artist.trim() || !track.title.trim())) throw new SongError('未能可靠识别这条投稿的歌手和歌名，请选择署名清楚的单曲或分集，未创建未知歌手目录。', 409);
+  lyricScript: LyricScript = defaultLyricScript, videoTargets?: VideoSaveTargets, saveDirectoryArtist?: string): Promise<SongLocalSaveResult> {
+  const directoryArtist = track.provider === 'bilibili-video' && !track.artist.trim() ? saveDirectoryArtist?.trim() ?? '' : track.artist.trim();
+  if (track.provider === 'bilibili-video' && (!directoryArtist || !track.title.trim())) throw new SongError('未能可靠识别这条投稿的歌手和歌名，请选择署名清楚的单曲或分集，未创建未知歌手目录。', 409);
   const invalid = () => new SongError('此录音未通过下载验证。', 409);
   const validated = (audio: Buffer) => { if (!audio.length || audio.length > maxAudioBytes) throw invalid(); return audio; };
   if (track.availability !== 'ready' && track.availability !== 'audio-only' || track.availability === 'ready' && !track.lyrics?.text.trim()) throw invalid();
@@ -179,12 +180,13 @@ export async function saveSongLocally(root: string, track: SongDetail, source: B
     return sidecar && !outcome.lyrics ? complete(await inspectPath(path, sidecar, true)) : report(outcome);
   }
   const stem = songTitleStem(track.title);
-  const previousStem = songStem(track);
-  const folders = [artistFolder(track.artist)];
+  const directoryTrack = directoryArtist === track.artist ? track : { ...track, artist: directoryArtist };
+  const previousStem = songStem(directoryTrack);
+  const folders = [artistFolder(directoryArtist)];
   const album = portableFilenameStem(track.album);
   if (track.provider !== 'bilibili-video' && track.releaseId && album) folders.push(album);
   const legacyStem = legacyVideoTitle !== undefined ? songTitleStem(legacyVideoTitle) : previousStem;
-  const old = new SongArchivePaths().add(track, legacyStem).audio.split('/');
+  const old = new SongArchivePaths().add(directoryTrack, legacyStem).audio.split('/');
   const oldStem = old.pop()!.slice(0, -4);
   const verifyAudio = track.provider === 'bilibili-video';
   const target = await openDirectory(base, folders, false);

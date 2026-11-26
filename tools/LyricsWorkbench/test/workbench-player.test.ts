@@ -100,7 +100,7 @@ test('video lyric search hints are clearly labeled as lookup-only and never as s
   const html = renderToStaticMarkup(createElement(WorkbenchPlayer, { detail: hinted, result: { status: 'missing' } }));
   assert.match(html, /歌词按“Imagine Dragons”查找/);
   assert.match(html, /这是搜索线索，不是投稿署名/);
-  assert.match(html, /不会据此自动创建歌手目录或保存/);
+  assert.match(html, /会要求确认目标歌手目录和音源保存权限/);
   assert.match(html, /按“Imagine Dragons”查找后仍未匹配到歌词/);
   assert.doesNotMatch(html, /来源未提供明确歌手，暂无法匹配歌词/);
 });

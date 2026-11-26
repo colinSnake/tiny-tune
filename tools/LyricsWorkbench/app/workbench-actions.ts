@@ -8,6 +8,7 @@ import type { SongLocalSaveResult } from '../src/song-local-save';
 import { canDownload, fetchSongFile, prepareSongBatch, songKey, trackPath } from './song-downloads';
 import { failure } from './song-requests';
 import { fetchDetail, jsonRequest, type WorkbenchDetail, type WorkbenchState } from './workbench-state';
+import { resolveUncreditedVideoSaveArtist, uncreditedVideoSavePayload } from './workbench-save-confirmation';
 import { download } from './ui';
 import type { SavedFileLocation } from './workbench-save-locations';
 
@@ -43,6 +44,12 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
   }
   async function run(rows: WorkspaceRow[], mode: 'save' | 'export', explicit?: { key: string; approval: LyricApproval }) {
     if (!rows.length || task.current) return;
+    let confirmedSaveArtistHint: string | undefined;
+    if (mode === 'save') {
+      const consent = resolveUncreditedVideoSaveArtist(rows, state.submitted, message => typeof window !== 'undefined' && window.confirm(message));
+      if (consent.status === 'cancelled') { setJob({ busy: false, message: '已取消保存。' }); return; }
+      if (consent.status === 'confirmed') confirmedSaveArtistHint = consent.artistHint;
+    }
     const controller = new AbortController(); task.current = controller;
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(180_000)]);
     const targets = rows.slice(0, 50);
@@ -94,7 +101,9 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
             try {
               const track = state.versions.get(row.key) ?? (state.detail?.key === row.key ? state.detail.song : undefined) ?? row.track;
               const result = await jsonRequest<SongLocalSaveResult>(`${trackPath(track)}/save`, signal,
-                { lyricScript, ...(track.provider === 'bilibili-video' && choices.has(row.key) ? { candidateId: choices.get(row.key) } : {}), ...(track.provider === 'lrclib' && track.id !== row.track.id ? { alternate: true } : {}) });
+                { lyricScript, ...(track.provider === 'bilibili-video' && choices.has(row.key) ? { candidateId: choices.get(row.key) } : {}),
+                  ...uncreditedVideoSavePayload(row, confirmedSaveArtistHint),
+                  ...(track.provider === 'lrclib' && track.id !== row.track.id ? { alternate: true } : {}) });
               recordSave(row, result);
             } catch (error) { signal.throwIfAborted(); skipped.push(`${row.track.title}：${failure(error).message}`); }
           }
