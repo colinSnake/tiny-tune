@@ -12,6 +12,12 @@ const credit = (value: string) => jay.test(value.normalize('NFKC').trim()) ? '�
   : gem.test(value.normalize('NFKC').trim()) ? '邓紫棋' : zhangJie.test(value.normalize('NFKC').trim()) ? '张杰' : value.trim();
 const lyricCredit = (value: string) => jay.test(value.normalize('NFKC').trim()) ? '周杰伦' : credit(value);
 const isGem = (value: string) => credit(value) === '邓紫棋';
+
+/** Resolve a narrow set of exact search aliases for lyric lookup only, never source metadata. */
+export function videoLyricArtistHint(query: string): string | undefined {
+  const normalized = normalize(query).replace(/[^\p{L}\p{N}]/gu, '');
+  return ['梦龙乐队', '梦龙', 'imaginedragons'].includes(normalized) ? 'Imagine Dragons' : undefined;
+}
 const collectionLabel = /^(?:(?:的|經典|经典|熱門|热门|精選|精选|國語|国语|粵語|粤语|全|歌曲|單曲|单曲|金曲|華語|华语|音樂|音乐|無損|无损|高清|超清|怀旧|懷舊|合[集輯])\s*)+$/u;
 const isPerformer = (value: string) => !!value.trim() && !variant.test(value) && !collectionLabel.test(value.trim()) &&
   !/等人|群星|播放量|最高|[0-9]|精[选選]/u.test(value);

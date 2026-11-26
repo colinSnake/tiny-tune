@@ -66,3 +66,26 @@ test('a video with a lyric lookup identity automatically requests lyrics even wh
   assert.equal(detail.track.title, track.title);
   assert.deepEqual(detail.result, result);
 });
+
+test('an artist-only search passes a whitelisted lyric hint without changing the video credit', async t => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  const track = { provider: 'bilibili-video' as const, id: 'BV1xN411x76o-1', title: 'Believer', artist: '', album: '投稿', duration: 204, availability: 'audio-only' as const };
+  const row: WorkspaceRow = { kind: 'song', key: `${track.provider}:${track.id}`, versions: [], track };
+  const calls: Array<{ url: string; body?: unknown }> = [];
+  const result = { status: 'plain', candidate: { id: 12, title: 'Believer', artist: 'Imagine Dragons', album: 'Night Visions', duration: 204,
+    instrumental: false, synced: '', plain: '回归测试歌词' } };
+  globalThis.fetch = async (url, init) => {
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    calls.push({ url: String(url), body });
+    return Response.json(String(url).endsWith('/lyrics') ? { result, lyricArtistHint: 'Imagine Dragons' }
+      : { track: { ...track, sourceUrl: 'https://example.com', lyrics: null } });
+  };
+
+  const data = await fetchDetail(row, new AbortController().signal, undefined, undefined, false, '梦龙乐队');
+  assert.deepEqual(calls[1]?.body, { artistHint: 'Imagine Dragons' });
+  assert.equal(data.lyricLookupHint, 'Imagine Dragons');
+  assert.equal(data.song?.artist, '', 'the query alias must not become source metadata');
+  assert.equal(data.track.artist, '', 'the query alias must not become the displayed recording credit');
+  assert.deepEqual(data.result, result);
+});

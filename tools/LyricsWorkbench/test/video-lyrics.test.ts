@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { videoPostLyricIdentity, videoSongIdentity } from '../src/video-lyrics';
+import { videoLyricArtistHint, videoPostLyricIdentity, videoSongIdentity } from '../src/video-lyrics';
 
 test('an explicitly named Wu Bai collection retains the artist instead of promotional text', () => {
   for (const collection of [
@@ -40,7 +40,6 @@ test('a title without an explicit, unambiguous performer is not used for video l
   ]) assert.equal(videoPostLyricIdentity(title), undefined, title);
 });
 
-
 test('a lookup hint cannot override a conflicting collection performer or rename a credited recording', () => {
   const raw = '《告白气球》 - 周杰倫';
   assert.deepEqual(videoSongIdentity(raw), { title: '《告白气球》', artist: '周杰伦' });
@@ -60,4 +59,12 @@ test('a bracketed artist corroborated by a part credit wins over collection desc
 test('an explicitly named Zhang Jie credit takes precedence over a conflicting collection title', () => {
   assert.deepEqual(videoSongIdentity('张杰 - 铭记', '铭记华语歌曲合集'), { title: '铭记', artist: '张杰' });
   assert.deepEqual(videoSongIdentity('张杰 - 天下', '天下怀旧金曲合集'), { title: '天下', artist: '张杰' });
+});
+
+test('Imagine Dragons search aliases resolve only as lyric lookup hints', () => {
+  assert.equal(videoLyricArtistHint('梦龙乐队'), 'Imagine Dragons');
+  assert.equal(videoLyricArtistHint('Imagine Dragons'), 'Imagine Dragons');
+  assert.equal(videoLyricArtistHint(' imagine   dragons '), 'Imagine Dragons');
+  assert.equal(videoLyricArtistHint('梦龙乐队 Believer'), undefined);
+  assert.equal(videoLyricArtistHint('王力宏'), undefined);
 });

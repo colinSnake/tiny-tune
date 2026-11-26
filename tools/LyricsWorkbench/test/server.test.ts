@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import type { BilibiliDiscovery } from '../src/bilibili-discovery';
 import type { Artist, Track } from '../src/types';
 import { MusicSources, UpstreamError } from '../src/providers';
 import { createServer } from '../src/server';
@@ -114,7 +115,6 @@ test('Fastify preserves retry timing and upstream failures', async () => {
   }
 });
 
-
 test('Fastify serves Vite modules and the API on the same development origin', async (t) => {
   const fixture = testSources();
   const server = await createServer({
@@ -199,7 +199,6 @@ test('temporary artist search failures are not cached as results', async (t) => 
   assert.deepEqual((await server.inject(query)).json(), { artists: [artist] });
 });
 
-
 test('Fastify serves the local-only interface font without exposing a filesystem path', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'tinytune-local-font-'));
   const fontPath = join(directory, 'soft-candy.ttf');
@@ -227,6 +226,45 @@ test('Fastify does not expose a local interface font when no private asset is co
   try {
     const response = await server.inject({ method: 'GET', url: '/local-assets/ruantang.ttf' });
     assert.equal(response.statusCode, 404);
+  } finally {
+    await server.close();
+  }
+});
+
+test('video lyric lookup may use an allowlisted search artist hint without attributing the source post', async () => {
+  const sourceTrack = {
+    provider: 'bilibili-video' as const, id: 'BV1xN411x76o-1', title: 'Believer', artist: '', album: 'B 站投稿', duration: 204,
+    availability: 'audio-only' as const, sourceUrl: 'https://www.bilibili.com/video/BV1xN411x76o', licenseUrl: null, previewUrl: null, lyrics: null,
+  };
+  const videoDiscovery = { detail: async () => ({ track: sourceTrack, downloadUrl: null }) } as unknown as BilibiliDiscovery;
+  const calls: string[] = [];
+  const candidate = { id: 12, title: 'Believer', artist: 'Imagine Dragons', album: 'Night Visions', duration: 204,
+    instrumental: false, synced: '', plain: '回归测试歌词' };
+  const server = await createServer({
+    sources: testSources().sources,
+    bilibiliVideos: videoDiscovery,
+    localLyricSearch: async query => { calls.push(query); return [candidate]; },
+  });
+  try {
+    const request = (artistHint?: string) => server.inject({ method: 'POST', url: `/api/songs/bilibili-video/${sourceTrack.id}/lyrics`,
+      headers: { 'content-type': 'application/json' }, payload: artistHint ? { artistHint } : {} });
+    const withoutHint = await request();
+    assert.equal(withoutHint.statusCode, 200);
+    assert.equal(withoutHint.json().result.status, 'missing');
+    assert.equal(calls.length, 0);
+
+    const hinted = await request('Imagine Dragons');
+    assert.equal(hinted.statusCode, 200);
+    assert.equal(hinted.json().result.status, 'plain');
+    assert.equal(hinted.json().lyricArtistHint, 'Imagine Dragons');
+    assert.equal(hinted.json().track.artist, '', 'the search hint must not be returned as source metadata');
+    assert.deepEqual(calls, ['Believer Imagine Dragons']);
+
+    const rejectedHint = await request('Another Singer');
+    assert.equal(rejectedHint.statusCode, 200);
+    assert.equal(rejectedHint.json().result.status, 'missing');
+    assert.equal(rejectedHint.json().lyricArtistHint, undefined);
+    assert.equal(calls.length, 1, 'unrecognized hints must not broaden the lyric query');
   } finally {
     await server.close();
   }

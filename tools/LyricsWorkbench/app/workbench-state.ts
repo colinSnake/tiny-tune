@@ -7,18 +7,19 @@ import type { Artist, ItemState, Track, TrackPage } from '../src/types';
 import { localSearchTerms, workspaceRows, type WorkspaceRow } from '../src/workbench';
 import { checked, failure, SongSearchRequest, type SourceResult } from './song-requests';
 import { songKey, trackPath } from './song-downloads';
+import { videoLyricArtistHint } from '../src/video-lyrics';
 
 export async function jsonRequest<T>(url: string, signal?: AbortSignal, body?: unknown): Promise<T> {
   const response = await checked(await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(url.endsWith('/save') ? 150_000 : 30_000)]) : AbortSignal.timeout(url.endsWith('/save') ? 150_000 : 30_000),
     ...(body !== undefined ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) }));
   return response.json() as Promise<T>;
 }
-export type WorkbenchDetail = { key: string; track: Track; result: ItemState; local?: LocalTrack; song?: SongDetail; timing?: TimingLookup; findingTiming?: boolean };
+export type WorkbenchDetail = { key: string; track: Track; result: ItemState; local?: LocalTrack; song?: SongDetail; timing?: TimingLookup; findingTiming?: boolean; lyricLookupHint?: string };
 export function rowTrack(row: WorkspaceRow): Track {
   return row.kind === 'song' ? { ...row.track, duration: row.track.duration || null, albums: row.track.album ? [row.track.album] : [] } : row.track;
 }
 export async function fetchDetail(row: WorkspaceRow, signal: AbortSignal, version?: SongSummary, onReady?: (detail: WorkbenchDetail) => void,
-  searchTiming = false): Promise<WorkbenchDetail> {
+  searchTiming = false, searchQuery = ''): Promise<WorkbenchDetail> {
   if (row.kind === 'song') {
     const { track: song } = await jsonRequest<{ track: SongDetail }>(trackPath(version ?? row.track), signal);
     const track: Track = { ...song, id: songKey(song), duration: song.duration || null, albums: song.album ? [song.album] : [] };
@@ -26,12 +27,18 @@ export async function fetchDetail(row: WorkspaceRow, signal: AbortSignal, versio
       album: song.album, duration: song.duration || null, instrumental: false, synced: song.lyrics.kind === 'timed' ? song.lyrics.text : '',
       plain: song.lyrics.kind === 'plain' ? song.lyrics.text : '' }) : { status: 'missing' };
     const lookup = song.lyricIdentity ?? song;
-    if (!song.lyrics && lookup.title && lookup.artist) {
-      onReady?.({ key: row.key, track, song, result: { status: 'running' } });
-      try { result = (await jsonRequest<{ result: ItemState }>(`${trackPath(song)}/lyrics`, signal, {})).result; }
-      catch (error) { signal.throwIfAborted(); result = { status: 'error', message: failure(error).message }; }
+    const artistHint = song.provider === 'bilibili-video' && !lookup.artist ? videoLyricArtistHint(searchQuery) : undefined;
+    let lyricLookupHint: string | undefined;
+    if (!song.lyrics && lookup.title && (lookup.artist || artistHint)) {
+      onReady?.({ key: row.key, track, song, result: { status: 'running' }, ...(artistHint ? { lyricLookupHint: artistHint } : {}) });
+      try {
+        const response = await jsonRequest<{ result: ItemState; lyricArtistHint?: string }>(`${trackPath(song)}/lyrics`, signal,
+          artistHint ? { artistHint } : {});
+        result = response.result;
+        lyricLookupHint = response.lyricArtistHint;
+      } catch (error) { signal.throwIfAborted(); result = { status: 'error', message: failure(error).message }; }
     }
-    return { key: row.key, track, song, result };
+    return { key: row.key, track, song, result, ...(lyricLookupHint ? { lyricLookupHint } : {}) };
   }
   if (row.kind === 'local') {
     const response = await jsonRequest<LocalLyricsLookup>(`/api/local-library/${row.track.id}/lyrics`, signal, searchTiming ? { searchTiming } : {});
@@ -167,14 +174,14 @@ export function useWorkbench() {
         setAvailability(current => current.get(songKey(song)) === song.availability ? current : new Map(current).set(songKey(song), song.availability));
       }
     };
-    void fetchDetail(row, task.signal, version, publish, !!localPlain).then(data => {
+    void fetchDetail(row, task.signal, version, publish, !!localPlain, submitted).then(data => {
       if (!task.signal.aborted) { if (data.result.status !== 'error') cache.current.set(cacheKey, data); publish(data); }
     }).catch(error => {
       if (!task.signal.aborted) setDetail(localPlain ? { ...localPlain, timing: { status: 'error', message: failure(error).message } }
         : { key: row.key, track: rowTrack(row), ...(row.kind === 'local' ? { local: row.track } : {}), result: { status: 'error', message: failure(error).message } });
     });
     return () => task.abort();
-  }, [selectedKey, version, detailAttempt]);
+  }, [selectedKey, version, detailAttempt, submitted]);
 
   return { query, setQuery, submitted, rows, selected, autoPlay: selection?.autoPlay ?? false, detail, version, versions, root, localEnabled, localBusy, localError, artist, artists, next,
     catalogBusy, catalogError, sources, sourceError, searching, cache,

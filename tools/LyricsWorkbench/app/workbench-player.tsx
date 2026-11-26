@@ -158,6 +158,7 @@ export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScri
           {onRetry && <button className="text-button" type="button" onClick={onRetry}>{retryLabel}</button>}
         </div>
       </div>
+      {detail.lyricLookupHint && <p className="wb-hint" role="status">歌词按“{detail.lyricLookupHint}”查找；这是搜索线索，不是投稿署名。投稿未明确署名时，不会据此自动创建歌手目录或保存。</p>}
       {lyricOptions}
       {(parsed.cues.length > 0 || plain) && <div className="wb-lyrics-info"><div className="wb-lyric-reading">
         <p className="wb-lyric-note">{canSync ? (follow ? '随播放滚动 · 点击歌词跳转' : '已暂停自动滚动 · 当前句仍会高亮') : parsed.cues.length ? '时间轴未与音源核对，仅供阅读' : video ? 'B 站嵌入播放器未提供可用进度，歌词仅供阅读' : '纯文本 · 不自动滚动'}</p>
@@ -180,7 +181,7 @@ export function WorkbenchPlayer({ detail, result, lyricScript = defaultLyricScri
       <div className="wb-lyric-reading wb-lyric-text wb-stanzas">{plain.stanzas.map((verse, i) => <p key={i}>{verse.map((line, j) => <Fragment key={j}>{j > 0 && <br />}{line}</Fragment>)}</p>)}</div>
     </div>
       : <div className="wb-no-lyrics" role="status">{result.status === 'running' ? <><span className="search-spinner" />正在查找歌词…</>
-        : result.status === 'error' ? result.message : result.status === 'instrumental' ? '纯音乐，没有歌词。' : result.status === 'review' ? '请选择要预览的歌词版本。' : video && !(song?.lyricIdentity?.artist || detail.track.artist) ? '来源未提供明确歌手，暂无法匹配歌词。' : '暂未匹配到歌词。'}</div>}
+        : result.status === 'error' ? result.message : result.status === 'instrumental' ? '纯音乐，没有歌词。' : result.status === 'review' ? '请选择要预览的歌词版本。' : detail.lyricLookupHint && video ? `按“${detail.lyricLookupHint}”查找后仍未匹配到歌词；投稿未提供明确歌手署名。` : video && !(song?.lyricIdentity?.artist || detail.track.artist) ? '来源未提供明确歌手，暂无法匹配歌词。' : '暂未匹配到歌词。'}</div>}
     </section>
   </div>;
 }

@@ -19,7 +19,7 @@ import { saveLyricsLocally, saveSongLocally, type SongLocalSaveResult } from './
 import { LyricsCatalog } from './lyrics-catalog';
 import { matchLyrics, normalize } from './match';
 import { chooseLyrics } from './workbench';
-import { matchVideoLyrics, videoLyricQuery } from './video-lyrics';
+import { matchVideoLyrics, videoLyricArtistHint, videoLyricQuery } from './video-lyrics';
 import { rankSongs, songProviders, songProviderLabels, type SongDetail, type SongProvider } from './song-types';
 
 type Sources = Pick<MusicSources, 'artists' | 'recordings' | 'collect'>;
@@ -294,16 +294,20 @@ export async function createServer(options: ServerOptions = {}) {
     }
   }
 
-  async function songLyrics(track: SongDetail, signal: AbortSignal): Promise<{ track: Track; result: LyricResult }> {
+  async function songLyrics(track: SongDetail, signal: AbortSignal, searchArtistHint?: unknown): Promise<{ track: Track; result: LyricResult; lyricArtistHint?: string }> {
     const video = track.provider === 'bilibili-video';
     const { title, artist } = video && track.lyricIdentity ? track.lyricIdentity : track;
     const recording: Track = { id: `${track.provider}:${track.id}`, title, artist,
       albums: !video && track.album ? [track.album] : [], duration: track.duration || null };
-    if (!title || !artist) return { track: recording, result: { status: 'missing' } };
+    const hintedArtist = video && !artist && typeof searchArtistHint === 'string' ? videoLyricArtistHint(searchArtistHint) : undefined;
+    const lookupArtist = artist || hintedArtist || '';
+    const lookupTrack = lookupArtist === artist ? recording : { ...recording, artist: lookupArtist };
+    if (!title || !lookupArtist) return { track: recording, result: { status: 'missing' } };
     const find = options.localLyricSearch ?? ((query: string, signal?: AbortSignal) => defaultSources.searchLyrics(query, signal, 100));
-    const candidates = (await find(video ? videoLyricQuery(recording) : `${title} ${artist}`, signal)).slice(0, 100);
+    const candidates = (await find(video ? videoLyricQuery(lookupTrack) : `${title} ${artist}`, signal)).slice(0, 100);
     signal.throwIfAborted();
-    return { track: recording, result: video ? matchVideoLyrics(recording, candidates) : matchLyrics(recording, candidates) };
+    return { track: recording, result: video ? matchVideoLyrics(lookupTrack, candidates) : matchLyrics(recording, candidates),
+      ...(hintedArtist ? { lyricArtistHint: hintedArtist } : {}) };
   }
 
   app.get('/api/songs/status', async (_request, reply) => {
@@ -361,7 +365,8 @@ export async function createServer(options: ServerOptions = {}) {
     if (!catalog) return reply.code(404).send({ error: '录音来源未启用。' });
     if (mode === 'lyrics') return withSongRequest(request, reply, 25_000, async signal => {
       const { track } = await catalog.detail(id, signal);
-      return songLyrics(track, signal);
+      const lyricsBody = request.body as { artistHint?: unknown } | undefined | null;
+      return songLyrics(track, signal, provider === 'bilibili-video' ? lyricsBody?.artistHint : undefined);
     });
     const optionsBody = request.body as { lyricScript?: unknown; alternate?: unknown; candidateId?: unknown } | undefined | null;
     const lyricScript = parseLyricScript(optionsBody?.lyricScript);

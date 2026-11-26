@@ -36,7 +36,7 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
     const cacheKey = version ? `${row.key}/${songKey(version)}` : row.key;
     const cached = state.cache.current.get(cacheKey);
     if (cached && cached.result.status !== 'error') return cached;
-    const data = await fetchDetail(row, signal, version);
+    const data = await fetchDetail(row, signal, version, undefined, false, state.submitted);
     signal.throwIfAborted();
     if (data.result.status !== 'error') state.cache.current.set(cacheKey, data);
     return data;

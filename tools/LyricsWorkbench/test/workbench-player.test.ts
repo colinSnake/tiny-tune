@@ -56,7 +56,6 @@ test('a lyric may start with the song title when there is no metadata marker', (
   assert.match(html, /<p>句号<br\/>这行开头确实就是歌名<\/p>/);
 });
 
-
 test('audio controls and a lyrics-only result reserve the same player area', () => {
   const audio = { ...detail, song: { ...detail.song!, previewUrl: '/sample.wav' } };
   const noAudio = { ...detail, key: 'lrclib:1', song: { ...detail.song!, bilibiliVideoId: undefined, availability: 'lyrics-only' as const } };
@@ -65,7 +64,6 @@ test('audio controls and a lyrics-only result reserve the same player area', () 
   assert.match(render(noAudio), /class="wb-media-stage"[^]*此结果仅提供歌词/);
   assert.doesNotMatch(render(noAudio), /<audio|<iframe/);
 });
-
 
 test('the default preview simplifies both plain lyric text and credits without changing the candidate', () => {
   const candidate = { id: 1, title: track.title, artist: track.artist, album: '', duration: 236, instrumental: false, synced: '',
@@ -94,4 +92,15 @@ test('timed lyric content includes a trailing scroll area for the final active l
     instrumental: false, synced: '[00:01.00]第一句\n[00:04.00]第二句', plain: '第一句\n第二句' } };
   const html = renderToStaticMarkup(createElement(WorkbenchPlayer, { detail, result: timed }));
   assert.match(html, /wb-lyric-tail-space/);
+});
+
+test('video lyric search hints are clearly labeled as lookup-only and never as source credits', () => {
+  const hinted: WorkbenchDetail = { ...detail, lyricLookupHint: 'Imagine Dragons', track: { ...detail.track, artist: '' },
+    song: { ...detail.song!, artist: '' } };
+  const html = renderToStaticMarkup(createElement(WorkbenchPlayer, { detail: hinted, result: { status: 'missing' } }));
+  assert.match(html, /歌词按“Imagine Dragons”查找/);
+  assert.match(html, /这是搜索线索，不是投稿署名/);
+  assert.match(html, /不会据此自动创建歌手目录或保存/);
+  assert.match(html, /按“Imagine Dragons”查找后仍未匹配到歌词/);
+  assert.doesNotMatch(html, /来源未提供明确歌手，暂无法匹配歌词/);
 });
