@@ -129,6 +129,9 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         helper = source.split('private extension View {', 1)[1].split('#else', 1)[0]
         self.assertIn('PhoneLibraryBackground(style: style)', helper)
         self.assertIn('TuneTheme.canvas.ignoresSafeArea(.container)', helper)
+        self.assertIn('.toolbarBackground(TuneTheme.canvas, for: .tabBar)', helper)
+        self.assertIn('.toolbarBackground(.visible, for: .tabBar)', helper)
+        self.assertNotIn('.toolbarBackground(.hidden, for: .tabBar)', helper)
         self.assertEqual(roots.count('.navigationBarTitleDisplayMode(.inline)'), 3)
         self.assertEqual(roots.count('.toolbarBackground(.hidden, for: .navigationBar)'), 3)
         for title in ['Music Library', 'Search', 'Music Sources']:
@@ -181,10 +184,10 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         self.assertIn('TuneTheme.raised.opacity(', card)
         self.assertNotIn('content.opacity(', card)
 
-    def test_phone_source_surfaces_use_browsing_card_fill(self):
+    def test_phone_source_list_uses_browsing_card_fill(self):
         source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
         surfaces = source.split('private var phoneBody:', 1)[1].split('private var desktopBody:', 1)[0]
-        self.assertEqual(surfaces.count('.tuneCard(cornerRadius: 22)'), 2)
+        self.assertEqual(surfaces.count('.tuneCard(cornerRadius: 22)'), 1)
         self.assertNotIn('.background(TuneTheme.raised', surfaces)
 
     def test_phone_details_share_browsing_artwork_but_player_does_not(self):
@@ -213,7 +216,7 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         card = source.split('private func phoneSourceCard', 1)[1].split('private func desktopSourceCard', 1)[0]
         self.assertNotIn('Menu {', card.replace('.contextMenu {', ''))
         self.assertIn('Image(systemName: "ellipsis")', card)
-        self.assertIn('attachmentAnchor: .rect(.bounds)', card)
+        self.assertIn('.phonePopover(isPresented:', card)
         self.assertIn('PhoneSourceActionsPopover(', card)
         self.assertIn('.contextMenu { sourceMenu(source, unavailable: unavailable) }', card)
 
@@ -221,7 +224,7 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         component = ROOT / 'apps/Shared/PhoneActionPopover.swift'
         self.assertTrue(component.is_file(), 'iOS action popovers need a shared component')
         surface = component.read_text()
-        for contract in ['.presentationCompactAdaptation(.popover)', '.presentationBackground(TuneTheme.raised)',
+        for contract in ['UIPopoverPresentationControllerDelegate', 'permittedArrowDirections = []', '.presentationBackground(TuneTheme.raised)',
                          'labelSize: CGFloat = 14', 'iconSize: CGFloat = 13', '@ScaledMetric',
                          '.frame(minHeight: 44)', 'TuneTheme.problem',
                          '.fixedSize(horizontal: false, vertical: true)', '.gridCellUnsizedAxes(.horizontal)']:
@@ -233,19 +236,45 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         self.assertIn('menu.frame(width: 288)', surface)
         self.assertIn('.padding(.horizontal, 15)', surface)
 
-    def test_empty_sources_centers_one_scrollable_card_and_omits_zero_count(self):
+    def test_empty_sources_reuse_the_library_empty_state(self):
         app = (ROOT / 'apps/Shared/TinytuneApp.swift').read_text()
         self.assertRegex(app, r'if !app\.snapshot\.sources\.isEmpty \{\s+PhoneRootSummary\(subtitle: Text\(".*music folders"\)\)')
         source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
         page = source.split('struct SourcesView: View', 1)[1].split('private var desktopBody:', 1)[0]
-        self.assertIn('GeometryReader { viewport in', page)
-        self.assertIn('phoneEmptyState', page)
-        self.assertIn('.frame(minHeight: viewport.size.height)', page)
-        card = page.split('private var phoneEmptyState', 1)[1]
-        self.assertIn('.multilineTextAlignment(.center)', card)
-        self.assertIn('.tuneCard(cornerRadius: 22)', card)
-        self.assertIn('app.choose()', card)
-        self.assertIn('.disabled(!app.canImport)', card)
+        empty_branch = page.split('if app.snapshot.sources.isEmpty', 1)[1].split('} else {', 1)[0]
+        self.assertIn('EmptyLibrary(app: app, showSources: {})', empty_branch)
+        self.assertNotIn('phoneEmptyState', page)
+        self.assertNotIn('No music sources', page)
+
+    def test_ios_popovers_are_anchored_without_arrow_indicators(self):
+        popover = (ROOT / 'apps/Shared/PhoneActionPopover.swift').read_text()
+        self.assertIn('UIPopoverPresentationController', popover)
+        self.assertIn('permittedArrowDirections = []', popover)
+        source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
+        catalog = (ROOT / 'apps/Shared/CatalogViews.swift').read_text()
+        player = (ROOT / 'apps/Shared/PlayerViews.swift').read_text()
+        self.assertIn('.phonePopover(isPresented:', source)
+        self.assertIn('.phonePopover(isPresented:', catalog)
+        self.assertIn('.phonePopover(isPresented:', player)
+
+    def test_ios_source_removal_does_not_present_confirmation(self):
+        source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
+        phone = source.split('private func phoneSourceCard', 1)[1].split('private func desktopSourceCard', 1)[0]
+        self.assertNotIn('removalPopover', phone)
+        routing = source.split('private func performPhoneSourceAction', 1)[1].split('#endif', 1)[0]
+        self.assertIn('case .remove: app.remove(source)', routing)
+        self.assertNotIn('pendingRemoval = source.id', routing)
+
+    def test_lyrics_preview_and_timeline_seek_then_resume(self):
+        player = (ROOT / 'apps/Shared/PlayerViews.swift').read_text()
+        design = (ROOT / 'packages/TinytuneKit/Sources/DesignSystem/NowPlayingLyrics.swift').read_text()
+        self.assertIn('NowPlayingLyricStrip(document: document', player)
+        self.assertIn('onSelect: previewPosition == nil ? { seekAndResume($0) } : nil', player)
+        self.assertIn('player.seekAndResume(cue.seconds)', player)
+        self.assertIn('onSelect: ((Double) -> Void)?', design)
+        self.assertIn('Button { onSelect(seconds) }', design)
+        playback = (ROOT / 'packages/TinytuneKit/Sources/Playback/Player.swift').read_text()
+        self.assertIn('public func seekAndResume(_ target: Double)', playback)
 
     def test_phone_source_and_removal_confirmation_use_shared_surface(self):
         source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
@@ -266,7 +295,7 @@ class IOSLandscapeDesignTests(unittest.TestCase):
         self.assertIn('#if os(iOS)', menu)
         phone, mac = menu.split('#else', 1)
         for contract in ['.font(.caption.weight(.medium))', 'size: sortIconSize', 'minWidth: 44, minHeight: 44',
-                         '.popover(isPresented: $showsSortOptions', 'PhoneActionPopover {',
+                         '.phonePopover(isPresented: $showsSortOptions)', 'PhoneActionPopover {',
                          'isSelected: order == option', 'order = option', 'showsSortOptions = false']:
             self.assertIn(contract, phone)
         self.assertIn('sortIconSize: CGFloat = 11', source)
@@ -275,25 +304,25 @@ class IOSLandscapeDesignTests(unittest.TestCase):
     def test_phone_lyrics_options_use_shared_popover_before_presenting_next_action(self):
         source = (ROOT / 'apps/Shared/PlayerViews.swift').read_text()
         menu = source.split('private var lyricsMenu:', 1)[1].split('private func actionLabel', 1)[0]
-        for contract in ['.popover(isPresented: $showsLyricsOptions', 'PhoneActionPopover {', 'if isImported',
+        for contract in ['.phonePopover(isPresented: $showsLyricsOptions)', 'PhoneActionPopover {', 'if isImported',
                          '.onDisappear(perform: finishLyricsAction)', 'selectLyricsAction(.importFile)',
                          'selectLyricsAction(.remove)', 'showsLyricsOptions = false',
                          'case .importFile: isPicking = true', 'case .remove: confirmsRemoval = true']:
             self.assertIn(contract, menu)
 
-    def test_phone_source_actions_close_before_handoff_and_keep_remove_confirmation(self):
+    def test_phone_source_actions_close_before_handoff_and_remove_immediately(self):
         source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()
         popup = source.split('private struct PhoneSourceActionsPopover', 1)[-1].split('private struct SourceCardAction', 1)[0]
         self.assertIn('selectedAction = action', popup)
-        self.assertIn('dismiss()', popup)
+        self.assertIn('close()', popup)
         self.assertIn('.onDisappear {', popup)
         self.assertIn('guard let selectedAction else { return }', popup)
         self.assertIn('onSelect(selectedAction)', popup)
         routing = source.split('private func performPhoneSourceAction', 1)[-1].split('#endif', 1)[0]
         for contract in ['app.rescan(source)', 'app.choose(source)', 'app.restoreRemoved(in: source)',
-                         'case .remove: pendingRemoval = source.id']:
+                         'case .remove: app.remove(source)']:
             self.assertIn(contract, routing)
-        self.assertNotIn('app.remove(source)', routing)
+        self.assertNotIn('pendingRemoval = source.id', routing)
 
     def test_phone_source_authorization_only_appears_in_more_menu(self):
         source = (ROOT / 'apps/Shared/SourceViews.swift').read_text()

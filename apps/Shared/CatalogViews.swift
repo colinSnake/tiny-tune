@@ -131,7 +131,7 @@ struct Catalog: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Sort By")
-        .popover(isPresented: $showsSortOptions, attachmentAnchor: .rect(.bounds)) {
+        .phonePopover(isPresented: $showsSortOptions) {
             PhoneActionPopover {
                 ForEach(SongSort.allCases, id: \.self) { option in
                     GridRow {

@@ -369,13 +369,13 @@ private extension SkipReason {
 extension View {
     func removalPopover<Content: View>(isPresented: Binding<Bool>, anchor: UnitPoint = .center,
                                        @ViewBuilder content: @escaping () -> Content) -> some View {
+        #if os(iOS)
+        phonePopover(isPresented: isPresented, anchor: anchor, content: content)
+        #else
         popover(isPresented: isPresented, attachmentAnchor: .point(anchor)) {
-            #if os(iOS)
-            content()
-            #else
             content().presentationCompactAdaptation(.popover)
-            #endif
         }
+        #endif
     }
 }
 
@@ -495,14 +495,7 @@ struct SourcesView: View {
 
     @ViewBuilder private var phoneBody: some View {
         if app.snapshot.sources.isEmpty {
-            GeometryReader { viewport in
-                ScrollView {
-                    phoneEmptyState
-                        .padding(16)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: viewport.size.height)
-                }
-            }
+            EmptyLibrary(app: app, showSources: {})
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
@@ -521,31 +514,6 @@ struct SourcesView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    private var phoneEmptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: 30, weight: .medium))
-                .foregroundStyle(TuneTheme.accent)
-                .frame(width: 64, height: 64)
-                .background(TuneTheme.subtle, in: .rect(cornerRadius: 18))
-                .accessibilityHidden(true)
-            Text("No music sources")
-                .font(.headline)
-                .foregroundStyle(TuneTheme.primary)
-                .accessibilityAddTraits(.isHeader)
-            Button { app.choose() } label: {
-                Label("Add Folder", systemImage: "plus")
-            }
-            .buttonStyle(TunePrimaryButton())
-            .disabled(!app.canImport)
-        }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 24)
-        .frame(maxWidth: 360)
-        .tuneCard(cornerRadius: 22)
     }
 
     #else
@@ -595,14 +563,15 @@ struct SourcesView: View {
                 .foregroundStyle(TuneTheme.accent)
                 .accessibilityLabel("Source Actions")
                 .disabled(!app.canImport)
-                .popover(isPresented: Binding(get: { phoneActionsSource == source.id }, set: { presented in
+                .phonePopover(isPresented: Binding(get: { phoneActionsSource == source.id }, set: { presented in
                     if presented { phoneActionsSource = source.id }
                     else if phoneActionsSource == source.id { phoneActionsSource = nil }
-                }), attachmentAnchor: .rect(.bounds)) {
+                })) {
                     PhoneSourceActionsPopover(
                         canImport: app.canImport,
                         showsRescan: !unavailable,
                         showsRestore: !unavailable && app.snapshot.excludedCount(for: source.id) > 0,
+                        close: { phoneActionsSource = nil },
                         onSelect: { performPhoneSourceAction($0, source: source) }
                     )
                 }
@@ -612,15 +581,6 @@ struct SourcesView: View {
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .contextMenu { sourceMenu(source, unavailable: unavailable) }
-        .removalPopover(isPresented: Binding(get: { pendingRemoval == source.id }, set: { if !$0, pendingRemoval == source.id { pendingRemoval = nil } }),
-                        anchor: .trailing) {
-            RemovalConfirmation(title: "Remove Source?", name: source.name) {
-                pendingRemoval = nil
-            } confirm: {
-                pendingRemoval = nil
-                app.remove(source)
-            }
-        }
     }
 
     #else
@@ -668,8 +628,13 @@ struct SourcesView: View {
         Button("Choose Folder Again", systemImage: "folder") { app.choose(source) }
             .disabled(!app.canImport)
         Divider()
+        #if os(iOS)
+        Button("Remove Source", systemImage: "trash", role: .destructive) { app.remove(source) }
+            .disabled(!app.canImport)
+        #else
         Button("Remove Source", systemImage: "trash", role: .destructive) { pendingRemoval = source.id }
             .disabled(!app.canImport)
+        #endif
     }
 
     #if os(iOS)
@@ -679,7 +644,7 @@ struct SourcesView: View {
         case .rescan: app.rescan(source)
         case .reauthorize: app.choose(source)
         case .restore: app.restoreRemoved(in: source)
-        case .remove: pendingRemoval = source.id
+        case .remove: app.remove(source)
         }
     }
     #endif
@@ -793,9 +758,9 @@ private struct PhoneSourceActionsPopover: View {
     let canImport: Bool
     let showsRescan: Bool
     let showsRestore: Bool
+    let close: () -> Void
     let onSelect: (Action) -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @State private var selectedAction: Action?
 
     var body: some View {
@@ -809,7 +774,7 @@ private struct PhoneSourceActionsPopover: View {
         .onDisappear {
             guard let selectedAction else { return }
             self.selectedAction = nil
-            // Run dialog and picker actions after the anchored popover is no longer on screen.
+            // Run the removal or picker action after the anchored menu is gone.
             Task { @MainActor in onSelect(selectedAction) }
         }
     }
@@ -818,7 +783,7 @@ private struct PhoneSourceActionsPopover: View {
         PhonePopoverAction(action.title, symbol: action.symbol, role: action == .remove ? .destructive : nil) {
             guard selectedAction == nil else { return }
             selectedAction = action
-            dismiss()
+            close()
         }
         .disabled(!canImport || selectedAction != nil)
     }

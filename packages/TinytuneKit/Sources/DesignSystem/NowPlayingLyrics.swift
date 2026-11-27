@@ -31,6 +31,9 @@ public struct NowPlayingLyricStrip: View {
     private let document: LyricsDocument
     private let window: NowPlayingLyricWindow
     private let animates: Bool
+    private let duration: Double
+    private let canSeek: Bool
+    private let onSelect: ((Double) -> Void)?
     #if os(macOS)
     @ScaledMetric(relativeTo: .subheadline) private var inactiveSize = 15.0
     @ScaledMetric(relativeTo: .body) private var currentSize = 18.0
@@ -40,9 +43,13 @@ public struct NowPlayingLyricStrip: View {
     #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(document: LyricsDocument, position: Double, animates: Bool = true) {
+    public init(document: LyricsDocument, position: Double, duration: Double = .infinity,
+                canSeek: Bool = false, animates: Bool = true, onSelect: ((Double) -> Void)? = nil) {
         self.document = document
         self.animates = animates
+        self.duration = duration
+        self.canSeek = canSeek
+        self.onSelect = onSelect
         self.window = NowPlayingLyricWindow(document: document, position: position)
     }
 
@@ -59,10 +66,22 @@ public struct NowPlayingLyricStrip: View {
         .frame(height: CGFloat(NowPlayingLyricWindow.visibleLineCount) * rowHeight)
         .clipped()
         .animation(reduceMotion || !animates ? nil : .easeOut(duration: 0.23), value: window)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
+    @ViewBuilder
     private func line(_ index: Int) -> some View {
+        let seconds = document.cues[index].seconds
+        if canSeek, seconds <= duration, let onSelect {
+            Button { onSelect(seconds) } label: { lineText(index) }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("lyric-preview-line-\(index)")
+        } else {
+            lineText(index)
+        }
+    }
+
+    private func lineText(_ index: Int) -> some View {
         let emphasized = index == window.current
         return Text(document.cues[index].lines.joined(separator: " · "))
             #if os(macOS)

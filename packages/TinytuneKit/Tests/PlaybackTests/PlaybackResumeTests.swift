@@ -592,6 +592,25 @@ final class PlaybackResumeTests: XCTestCase {
     }
 
     @MainActor
+    func testLyricSeekResumesPlaybackFromTheSelectedTimestamp() async throws {
+        let store = try tempStore()
+        let audio = store.url.deletingLastPathComponent().appendingPathComponent("lyric-seek-fixture.wav")
+        try writeSilentWAV(to: audio, seconds: 12)
+        let song = try track("Lyric Seek", duration: 12)
+        let player = Player(snapshotStore: store)
+        player.configure { _ in PlayableResource(url: audio, retaining: audio) }
+        defer { player.pause() }
+
+        player.play(song, in: [song])
+        try await wait { player.phase == .playing && player.seekingAvailable }
+        player.pause()
+        player.seekAndResume(7)
+
+        try await wait { player.phase == .playing && player.position >= 6.8 }
+        XCTAssertEqual(player.position, 7, accuracy: 0.5)
+    }
+
+    @MainActor
     func testSeekingKeepsPlaybackIntentForPlayingAndPausedAudio() async throws {
         let store = try tempStore()
         let audio = store.url.deletingLastPathComponent().appendingPathComponent("seek-fixture.wav")

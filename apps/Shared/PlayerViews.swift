@@ -952,7 +952,9 @@ private struct TrackLyricsPanel: View {
                         .frame(maxWidth: .infinity)
                 } else {
                     NowPlayingLyricStrip(document: document, position: previewPosition ?? app.player.position,
-                                         animates: previewPosition == nil)
+                                         duration: app.player.duration, canSeek: app.player.seekingAvailable,
+                                         animates: previewPosition == nil,
+                                         onSelect: previewPosition == nil ? { seekAndResume($0) } : nil)
                 }
             }
         }
@@ -1067,7 +1069,7 @@ private struct TrackLyricsPanel: View {
             .buttonStyle(.plain)
             .foregroundStyle(TuneTheme.accent)
             .accessibilityLabel("Lyrics Options")
-            .popover(isPresented: $showsLyricsOptions, attachmentAnchor: .rect(.bounds)) {
+            .phonePopover(isPresented: $showsLyricsOptions) {
                 PhoneActionPopover {
                     GridRow {
                         PhonePopoverAction("Import Lyrics…", symbol: "doc.badge.plus") { selectLyricsAction(.importFile) }
@@ -1181,7 +1183,7 @@ private struct TrackLyricsPanel: View {
                         let cue = document.cues[i]
                         if !cue.lines.isEmpty {
                             Button {
-                                if player.current == track && player.seekingAvailable { player.seek(cue.seconds) }
+                                if player.current == track && player.seekingAvailable { player.seekAndResume(cue.seconds) }
                             } label: {
                                 Text(cue.lines.joined(separator: "\n"))
                                     .font(index == i ? .title3.weight(.bold) : .body.weight(.semibold))
@@ -1216,6 +1218,11 @@ private struct TrackLyricsPanel: View {
                 if enabled { scroll(proxy, to: scrollTarget) }
             }
         }
+    }
+
+    private func seekAndResume(_ seconds: Double) {
+        guard app.player.current == track, app.player.seekingAvailable else { return }
+        app.player.seekAndResume(seconds)
     }
 
     private func scroll(_ proxy: ScrollViewProxy, to target: Int) {

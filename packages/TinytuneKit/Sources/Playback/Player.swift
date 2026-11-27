@@ -383,7 +383,16 @@ public final class Player {
         requestSeek(to: time, restoring: false)
     }
 
-    private func requestSeek(to time: Double, restoring: Bool) {
+    public func seekAndResume(_ target: Double) {
+        guard seekingAvailable, target.isFinite else { return }
+        let time = min(duration, max(target, 0))
+        position = time
+        if phase == .ended { phase = .paused }
+        wantsSound = true
+        requestSeek(to: time, restoring: false, resumesPlayback: true)
+    }
+
+    private func requestSeek(to time: Double, restoring: Bool, resumesPlayback: Bool = false) {
         let request = UUID()
         seekRequest = request
         engine.seek(to: .init(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, generation] finished in
@@ -394,7 +403,15 @@ public final class Player {
                     guard finished else { fail(); return }
                     finishLoading()
                 } else {
+                    guard finished else {
+                        if resumesPlayback && phase != .playing { wantsSound = false }
+                        samplePosition()
+                        publishSystemState()
+                        persistCheckpoint()
+                        return
+                    }
                     samplePosition()
+                    if resumesPlayback && wantsSound && phase != .playing { startAudio() }
                     publishSystemState()
                     persistCheckpoint()
                 }

@@ -303,7 +303,8 @@ private extension View {
             .background { PhoneLibraryBackground(style: style) }
             // The canvas extends under native bars; the fold stops at the content edge.
             .background { TuneTheme.canvas.ignoresSafeArea(.container) }
-            .toolbarBackground(.hidden, for: .tabBar)
+            .toolbarBackground(TuneTheme.canvas, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
     }
 }
 
