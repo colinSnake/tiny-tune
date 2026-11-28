@@ -368,7 +368,7 @@ export async function createServer(options: ServerOptions = {}) {
       const lyricsBody = request.body as { artistHint?: unknown } | undefined | null;
       return songLyrics(track, signal, provider === 'bilibili-video' ? lyricsBody?.artistHint : undefined);
     });
-    const optionsBody = request.body as { lyricScript?: unknown; alternate?: unknown; candidateId?: unknown; saveArtistHint?: unknown; confirmUncreditedSave?: unknown } | undefined | null;
+    const optionsBody = request.body as { lyricScript?: unknown; alternate?: unknown; candidateId?: unknown; saveArtistHint?: unknown } | undefined | null;
     const lyricScript = parseLyricScript(optionsBody?.lyricScript);
     if (!lyricScript) return badInput(reply, '请选择简体中文或保留原文。');
     if (provider === 'bilibili-video' && mode === 'download') return reply.code(409).send({ error: '未核对到同版本歌词，不能打包 ZIP。' });
@@ -411,10 +411,8 @@ export async function createServer(options: ServerOptions = {}) {
             const result = videoSource = await bilibiliVideos.mp3Source(id, signal);
             track = result.track; download = result.audio; legacyVideoTitle = result.downloadTitle;
             if (!track.artist.trim()) {
-              const confirmedHint = optionsBody?.confirmUncreditedSave === true && typeof optionsBody.saveArtistHint === 'string'
+              saveDirectoryArtist = typeof optionsBody?.saveArtistHint === 'string'
                 ? videoLyricArtistHint(optionsBody.saveArtistHint) : undefined;
-              if (!confirmedHint) return reply.code(409).send({ error: '投稿没有明确歌手署名。请在页面确认歌手目录，并确认你有权保存完整音频。' });
-              saveDirectoryArtist = confirmedHint;
             }
             try {
               const { result: found } = await songLyrics(track, AbortSignal.any([signal, AbortSignal.timeout(12_000)]), saveDirectoryArtist);

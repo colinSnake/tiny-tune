@@ -358,54 +358,84 @@ test('an unspaced Wang Leehom single credit is recognized and saved under the ar
   assert.deepEqual(await readdir(root), ['王力宏']);
 });
 
-test('an uncredited Bilibili source saves to the confirmed artist folder without changing source credit', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'tinytune-save-hinted-artist-'));
+for (const [artist, title] of [['Imagine Dragons', 'Believer'], ['陈奕迅', '爱情转移']]) {
+  test(`an uncredited ${artist} source saves using an artist hint without confirmation or changing source credit`, async t => {
+    const root = await mkdtemp(join(tmpdir(), 'tinytune-save-hinted-artist-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const bvid = 'BV1FPjy6TEiE';
+    const frame = Buffer.alloc(417); frame.set([255, 251, 144, 100]);
+    const audio = Buffer.concat(Array.from({ length: 306 }, () => frame));
+    let audioCalls = 0;
+    let lyricsAvailable = false;
+    const lyricQueries: string[] = [];
+    const discovery = new BilibiliDiscovery({ spacing: 0,
+      media: { available: true, audio: async () => { audioCalls++; return audio; } },
+      request: async () => Response.json({ code: 0, data: { bvid, title, state: 0, rights: { download: 1 },
+        pages: [{ page: 1, cid: 31, part: title, duration: 204 }] } }),
+    });
+    const app = await createServer({ bilibiliVideos: discovery, localLibraryRoot: root,
+      localLyricSearch: async query => {
+        lyricQueries.push(query);
+        return lyricsAvailable ? [{ id: 101, title, artist, album: '', duration: 204,
+          instrumental: false, synced: '', plain: 'First line\nSecond line' }] : [];
+      } });
+    t.after(() => app.close());
+    const headers = { host: '127.0.0.1:9120', origin: 'http://127.0.0.1:9120' };
+    const save = (payload: { saveArtistHint?: string }) => app.inject({ method: 'POST', url: `/api/songs/bilibili-video/${bvid}-1/save`, headers, payload });
+
+    const arbitrary = await save({ saveArtistHint: 'Other Artist' });
+    assert.equal(arbitrary.statusCode, 409, 'only an allowlisted search alias can select the destination');
+    assert.equal(audioCalls, 0);
+
+    const noLyrics = await save({ saveArtistHint: artist });
+    assert.equal(noLyrics.statusCode, 409, 'an uncredited save must not leave an audio-only partial library entry');
+    assert.equal(audioCalls, 0);
+    assert.deepEqual(await readdir(root), []);
+
+    lyricsAvailable = true;
+    const saved = await save({ saveArtistHint: artist });
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.equal(saved.json().audio, `${artist}/${title}.mp3`);
+    assert.equal(saved.json().lyrics, `${artist}/${title}.lrc`);
+    assert.equal(saved.json().lyricsKind, 'plain');
+    assert.equal(await readFile(join(root, saved.json().lyrics), 'utf8'), 'First line\nSecond line');
+    assert.equal(audioCalls, 1);
+    assert.deepEqual(lyricQueries, [`${title} ${artist}`, `${title} ${artist}`]);
+    const { track: sourceTrack } = await discovery.detail(`${bvid}-1`, new AbortController().signal);
+    assert.equal(sourceTrack.artist, '', 'the search hint must not become the source recording credit');
+    assert.deepEqual(await readdir(join(root, artist)), [`${title}.lrc`, `${title}.mp3`]);
+  });
+}
+
+test('a batch of six Eason songs saves with lyrics without source-credit confirmation', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-eason-batch-'));
   t.after(() => rm(root, { recursive: true, force: true }));
+  const titles = ['爱情转移', '富士山下', '红玫瑰', '十年', '好久不见', '淘汰'];
   const bvid = 'BV1FPjy6TEiE';
   const frame = Buffer.alloc(417); frame.set([255, 251, 144, 100]);
   const audio = Buffer.concat(Array.from({ length: 306 }, () => frame));
-  let audioCalls = 0;
-  let lyricsAvailable = false;
   const lyricQueries: string[] = [];
   const discovery = new BilibiliDiscovery({ spacing: 0,
-    media: { available: true, audio: async () => { audioCalls++; return audio; } },
-    request: async () => Response.json({ code: 0, data: { bvid, title: 'Believer', state: 0, rights: { download: 1 },
-      pages: [{ page: 1, cid: 31, part: 'Believer', duration: 204 }] } }),
+    media: { available: true, audio: async () => audio },
+    request: async () => Response.json({ code: 0, data: { bvid, title: '歌曲列表', state: 0, rights: { download: 1 },
+      pages: titles.map((title, index) => ({ page: index + 1, cid: 31 + index, part: `陈奕迅-${title}`, duration: 204 })) } }),
   });
   const app = await createServer({ bilibiliVideos: discovery, localLibraryRoot: root,
     localLyricSearch: async query => {
       lyricQueries.push(query);
-      return lyricsAvailable ? [{ id: 101, title: 'Believer', artist: 'Imagine Dragons', album: 'Night Visions', duration: 204,
-        instrumental: false, synced: '', plain: 'First line\nSecond line' }] : [];
+      return titles.filter(title => query.includes(title)).map((title, index) => ({ id: 101 + index, title,
+        artist: '陈奕迅', album: '', duration: 204, instrumental: false, synced: '', plain: '测试歌词第一行\n测试歌词第二行' }));
     } });
   t.after(() => app.close());
   const headers = { host: '127.0.0.1:9120', origin: 'http://127.0.0.1:9120' };
-  const save = (payload: { saveArtistHint?: string; confirmUncreditedSave?: boolean }) => app.inject({ method: 'POST', url: `/api/songs/bilibili-video/${bvid}-1/save`, headers, payload });
-
-  const unconfirmed = await save({ saveArtistHint: 'Imagine Dragons' });
-  assert.equal(unconfirmed.statusCode, 409);
-  assert.equal(audioCalls, 0, 'unconfirmed saves must not fetch audio');
-  assert.deepEqual(await readdir(root), []);
-
-  const arbitrary = await save({ saveArtistHint: 'Other Artist', confirmUncreditedSave: true });
-  assert.equal(arbitrary.statusCode, 409, 'only an allowlisted search alias can select the destination');
-  assert.equal(audioCalls, 0);
-
-  const noLyrics = await save({ saveArtistHint: 'Imagine Dragons', confirmUncreditedSave: true });
-  assert.equal(noLyrics.statusCode, 409, 'an uncredited save must not leave an audio-only partial library entry');
-  assert.equal(audioCalls, 0);
-  assert.deepEqual(await readdir(root), []);
-
-  lyricsAvailable = true;
-  const saved = await save({ saveArtistHint: 'Imagine Dragons', confirmUncreditedSave: true });
-  assert.equal(saved.statusCode, 200, saved.body);
-  assert.equal(saved.json().audio, 'Imagine Dragons/Believer.mp3');
-  assert.equal(saved.json().lyrics, 'Imagine Dragons/Believer.lrc');
-  assert.equal(saved.json().lyricsKind, 'plain');
-  assert.equal(await readFile(join(root, saved.json().lyrics), 'utf8'), 'First line\nSecond line');
-  assert.equal(audioCalls, 1);
-  assert.deepEqual(lyricQueries, ['Believer Imagine Dragons', 'Believer Imagine Dragons']);
-  const { track: sourceTrack } = await discovery.detail(`${bvid}-1`, new AbortController().signal);
-  assert.equal(sourceTrack.artist, '', 'the search hint must not become the source recording credit');
-  assert.deepEqual(await readdir(join(root, 'Imagine Dragons')), ['Believer.lrc', 'Believer.mp3']);
+  for (const [index, title] of titles.entries()) {
+    const saved = await app.inject({ method: 'POST', url: `/api/songs/bilibili-video/${bvid}-${index + 1}/save`, headers, payload: {} });
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.equal(saved.json().audio, `陈奕迅/${title}.mp3`);
+    assert.equal(saved.json().lyrics, `陈奕迅/${title}.lrc`);
+    assert.equal(await readFile(join(root, saved.json().lyrics), 'utf8'), '测试歌词第一行\n测试歌词第二行');
+  }
+  assert.deepEqual(lyricQueries, titles.map(title => `${title} 陈奕迅`));
+  assert.equal((await readdir(join(root, '陈奕迅'))).filter(name => name.endsWith('.mp3')).length, 6);
+  assert.equal((await readdir(join(root, '陈奕迅'))).filter(name => name.endsWith('.lrc')).length, 6);
 });

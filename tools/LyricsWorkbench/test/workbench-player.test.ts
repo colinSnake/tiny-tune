@@ -94,13 +94,14 @@ test('timed lyric content includes a trailing scroll area for the final active l
   assert.match(html, /wb-lyric-tail-space/);
 });
 
-test('video lyric search hints are clearly labeled as lookup-only and never as source credits', () => {
+test('video artist hints explain automatic folder selection without prompting or changing source credits', () => {
   const hinted: WorkbenchDetail = { ...detail, lyricLookupHint: 'Imagine Dragons', track: { ...detail.track, artist: '' },
     song: { ...detail.song!, artist: '' } };
   const html = renderToStaticMarkup(createElement(WorkbenchPlayer, { detail: hinted, result: { status: 'missing' } }));
   assert.match(html, /歌词按“Imagine Dragons”查找/);
   assert.match(html, /这是搜索线索，不是投稿署名/);
-  assert.match(html, /会要求确认目标歌手目录和音源保存权限/);
+  assert.match(html, /保存时自动使用该歌手目录，不改写投稿署名/);
+  assert.doesNotMatch(html, /会要求确认|保存权限/);
   assert.match(html, /按“Imagine Dragons”查找后仍未匹配到歌词/);
   assert.doesNotMatch(html, /来源未提供明确歌手，暂无法匹配歌词/);
 });

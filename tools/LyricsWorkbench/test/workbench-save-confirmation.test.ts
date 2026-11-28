@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveUncreditedVideoSaveArtist, uncreditedVideoSavePayload } from '../app/workbench-save-confirmation';
+import { uncreditedVideoSavePayload } from '../app/workbench-save-confirmation';
 import type { WorkspaceRow } from '../src/workbench';
 
 const videoRow = (id: string, title: string, artist = ''): WorkspaceRow => ({
@@ -9,38 +9,30 @@ const videoRow = (id: string, title: string, artist = ''): WorkspaceRow => ({
   versions: [],
 });
 
-test('uncredited Bilibili save uses an artist destination only after identity and permission confirmation', () => {
-  let prompted = '';
-  const result = resolveUncreditedVideoSaveArtist([videoRow('BV1xN411x76o-1', 'Believer')], '梦龙乐队', message => {
-    prompted = message;
-    return true;
-  });
-  assert.deepEqual(result, { status: 'confirmed', artistHint: 'Imagine Dragons' });
-  assert.match(prompted, /保存到“Imagine Dragons”目录/);
-  assert.match(prompted, /确属 Imagine Dragons/);
-  assert.match(prompted, /有权保存完整音频/);
-  assert.match(prompted, /不会把搜索词写成投稿署名/);
-  assert.match(prompted, /Believer/);
+test('uncredited saves use the search artist without a consent flag or dialog', () => {
+  const row = videoRow('BV1xN411x76o-1', 'Believer');
+  assert.deepEqual(uncreditedVideoSavePayload(row, '梦龙乐队'), { saveArtistHint: 'Imagine Dragons' });
+  assert.deepEqual(uncreditedVideoSavePayload(row, 'Imagine Dragons'), { saveArtistHint: 'Imagine Dragons' });
 });
 
-test('declining or lacking an allowlisted hint never authorizes an uncredited save', () => {
-  const row = videoRow('BV1xN411x76o-1', 'Believer');
-  const declined = resolveUncreditedVideoSaveArtist([row], '梦龙乐队', () => false);
-  assert.deepEqual(declined, { status: 'cancelled' });
-  assert.deepEqual(resolveUncreditedVideoSaveArtist([row], '任意歌手', () => assert.fail('must not prompt')), { status: 'not-needed' });
-  assert.deepEqual(resolveUncreditedVideoSaveArtist([videoRow('BV1xN411x76o-1', 'Believer', 'Imagine Dragons')], '梦龙乐队', () => assert.fail('must not prompt')),
-    { status: 'not-needed' });
-  assert.deepEqual(resolveUncreditedVideoSaveArtist([{ kind: 'song', key: 'jamendo:1', track: {
+test('Eason searches carry the artist directory for every uncredited selected song', () => {
+  for (const title of ['爱情转移', '富士山下', '红玫瑰']) {
+    assert.deepEqual(uncreditedVideoSavePayload(videoRow('BV1xN411x76o-1', title), '陈奕迅'), { saveArtistHint: '陈奕迅' });
+  }
+  assert.deepEqual(uncreditedVideoSavePayload(videoRow('BV1xN411x76o-1', '爱情转移'), '陳奕迅'), { saveArtistHint: '陈奕迅' });
+});
+
+test('search hints never override source credits or apply to other providers', () => {
+  assert.deepEqual(uncreditedVideoSavePayload(videoRow('BV1xN411x76o-1', 'Believer', 'Another Artist'), '梦龙乐队'), {});
+  const row: WorkspaceRow = { kind: 'song', key: 'jamendo:1', track: {
     provider: 'jamendo', id: '1', title: 'Believer', artist: '', album: '', duration: 200, availability: 'ready',
-  }, versions: [] }], '梦龙乐队', () => assert.fail('must not prompt')), { status: 'not-needed' });
+  }, versions: [] };
+  assert.deepEqual(uncreditedVideoSavePayload(row, '梦龙乐队'), {});
 });
 
-
-test('only a confirmed uncredited Bilibili row receives the artist-directory save payload', () => {
+test('empty, unknown or song-specific queries do not become artist folders', () => {
   const row = videoRow('BV1xN411x76o-1', 'Believer');
-  assert.deepEqual(uncreditedVideoSavePayload(row, 'Imagine Dragons'), {
-    saveArtistHint: 'Imagine Dragons', confirmUncreditedSave: true,
-  });
-  assert.deepEqual(uncreditedVideoSavePayload(row), {});
-  assert.deepEqual(uncreditedVideoSavePayload(videoRow('BV1xN411x76o-1', 'Believer', 'Imagine Dragons'), 'Imagine Dragons'), {});
+  for (const query of [undefined, '', '任意歌手', '梦龙乐队 Believer', '../陈奕迅']) {
+    assert.deepEqual(uncreditedVideoSavePayload(row, query), {});
+  }
 });

@@ -6,16 +6,21 @@ const gem = /^(?:g\.?\s*e\.?\s*m\.?\s*(?:[邓鄧]紫棋)?|[邓鄧]紫棋)$/iu;
 const separator = /\s*[-–—－|｜]\s*/gu;
 const variant = /\b(?:live|cover|mix|remix|edit|version|acoustic|instrumental|karaoke|demo|remaster(?:ed)?)\b|现场|現場|翻唱|伴奏|版本|纯音乐|純音樂/iu;
 const jay = /^(?:周[杰傑][伦倫]|jay\s+chou|chou,\s*jay)$/iu;
-const zhangJie = /^张杰$/u;
-const knownPerformer = /^(?:周[杰傑][伦倫]|伍佰|李克勤|[邓鄧]紫棋|张杰|張杰|王力宏)$/u;
+const zhangJie = /^[张張]杰$/u;
+const eason = /^(?:[陈陳]奕迅|eason\s+chan)$/iu;
+const knownPerformer = /^(?:周[杰傑][伦倫]|伍佰|李克勤|[邓鄧]紫棋|张杰|張杰|王力宏|[陈陳]奕迅|eason\s+chan)$/iu;
 const credit = (value: string) => jay.test(value.normalize('NFKC').trim()) ? '周杰伦'
-  : gem.test(value.normalize('NFKC').trim()) ? '邓紫棋' : zhangJie.test(value.normalize('NFKC').trim()) ? '张杰' : value.trim();
+  : gem.test(value.normalize('NFKC').trim()) ? '邓紫棋' : zhangJie.test(value.normalize('NFKC').trim()) ? '张杰'
+    : eason.test(value.normalize('NFKC').trim()) ? '陈奕迅' : value.trim();
 const lyricCredit = (value: string) => jay.test(value.normalize('NFKC').trim()) ? '周杰伦' : credit(value);
 const isGem = (value: string) => credit(value) === '邓紫棋';
 
-/** Resolve a narrow set of exact search aliases for lyric lookup only, never source metadata. */
+/** Resolve exact performer aliases for lyric lookup and local folders, never source metadata. */
 export function videoLyricArtistHint(query: string): string | undefined {
-  const normalized = normalize(query).replace(/[^\p{L}\p{N}]/gu, '');
+  const value = query.normalize('NFKC').trim();
+  if (/[\/\\\p{Cc}]/u.test(value)) return;
+  if (knownPerformer.test(value) || gem.test(value) || jay.test(value)) return credit(value);
+  const normalized = normalize(value).replace(/[^\p{L}\p{N}]/gu, '');
   return ['梦龙乐队', '梦龙', 'imaginedragons'].includes(normalized) ? 'Imagine Dragons' : undefined;
 }
 const collectionLabel = /^(?:(?:的|經典|经典|熱門|热门|精選|精选|國語|国语|粵語|粤语|全|歌曲|單曲|单曲|金曲|華語|华语|音樂|音乐|無損|无损|高清|超清|怀旧|懷舊|合[集輯])\s*)+$/u;

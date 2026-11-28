@@ -66,5 +66,19 @@ test('Imagine Dragons search aliases resolve only as lyric lookup hints', () => 
   assert.equal(videoLyricArtistHint('Imagine Dragons'), 'Imagine Dragons');
   assert.equal(videoLyricArtistHint(' imagine   dragons '), 'Imagine Dragons');
   assert.equal(videoLyricArtistHint('梦龙乐队 Believer'), undefined);
-  assert.equal(videoLyricArtistHint('王力宏'), undefined);
+  assert.equal(videoLyricArtistHint('王力宏'), '王力宏');
+});
+
+test('Eason source credits resolve without a search hint or a confirmation', () => {
+  for (const title of ['爱情转移', '富士山下', '红玫瑰']) {
+    for (const artist of ['陈奕迅', '陳奕迅', 'Eason Chan']) {
+      assert.deepEqual(videoSongIdentity(`${artist}-${title}`), { title, artist: '陈奕迅' });
+      assert.deepEqual(videoSongIdentity(`${title}-${artist}`), { title, artist: '陈奕迅' });
+    }
+  }
+  assert.equal(videoLyricArtistHint('陈奕迅'), '陈奕迅');
+  assert.equal(videoLyricArtistHint('陳奕迅'), '陈奕迅');
+  assert.equal(videoLyricArtistHint('Eason Chan'), '陈奕迅');
+  assert.equal(videoLyricArtistHint('陈奕迅 爱情转移'), undefined);
+  assert.equal(videoLyricArtistHint('../陈奕迅'), undefined);
 });
