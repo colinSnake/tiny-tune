@@ -379,7 +379,7 @@ export async function createServer(options: ServerOptions = {}) {
         if (track.availability !== 'lyrics-only' || !track.lyrics) return reply.code(409).send({ error: '没有可保存的歌词。' });
         signal.throwIfAborted();
         const alternate = optionsBody?.alternate === true;
-        return saveLyricsLocally(local.root, track, track.lyrics.text, alternate ? `歌词 ${id}` : undefined, lyricScript);
+        return saveLyricsLocally(local.root, track, track.lyrics.text, alternate ? `歌词 ${id}` : undefined, lyricScript, track.lyrics.kind);
       });
     }
     if (activeDownloads >= 2) {

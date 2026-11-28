@@ -63,3 +63,26 @@ test('lyrics export changes only the body, and original mode leaves the text int
   assert.equal(exportEntries(items, undefined, 'original').files[0].text, synced);
   assert.equal(candidate.synced, synced);
 });
+
+test('export checks the recording duration and converts residual glyphs without altering tags or foreign text', () => {
+  const track = { id: 'checked', title: '測試曲', artist: '測試歌手', albums: [], duration: 6 };
+  const synced = '\ufeff[by:妳的署名]\r\n[offset:-100]\r\n[00:01]我望著妳站在簷下，氣勢磅礡\r\n[00:03]著作權顯著，慰藉俱消，生旦净末丑\r\n[00:04]私は風の中で歌う';
+  const candidate = { ...track, id: 1, album: '', instrumental: false, synced, plain: '' };
+  const item: CollectionItem = { track, result: { status: 'timed', candidate } };
+  const expected = synced.replace('望著妳站在簷下，氣勢磅礡', '望着你站在檐下，气势磅礴').replace('著作權顯著', '著作权显著');
+  assert.equal(exportEntries([item]).files[0].text, expected);
+  assert.equal(exportEntries([item], undefined, 'original').files[0].text, synced);
+  const invalid = exportEntries([{ ...item, track: { ...track, duration: 4 } }]);
+  assert.equal(invalid.files.length, 0);
+  assert.equal(invalid.manifest.tracks[0].status, 'review');
+});
+
+test('manifest reports unresolved simplified variants for review, without rewriting names or Cantonese', () => {
+  const track = { id: 'glyphs', title: '測試曲', artist: '測試歌手', albums: [], duration: 6 };
+  const synced = '[ar:顧嘉煇]\n[00:01]我瞓咗，唔好嘈\n[00:03]作曲：顧嘉煇';
+  const candidate = { ...track, id: 1, album: '', instrumental: false, synced, plain: '' };
+  const item: CollectionItem = { track, result: { status: 'timed', candidate } };
+  const output = exportEntries([item]);
+  assert.equal(output.files[0].text, '[ar:顧嘉煇]\n[00:01]我瞓咗，唔好嘈\n[00:03]作曲：顾嘉煇');
+  assert.deepEqual(output.manifest.tracks[0].residualGlyphs, ['煇']);
+});

@@ -5,7 +5,7 @@ import { chooseLyrics, planLocalWrite, type LyricApproval, type WorkspaceRow } f
 import type { CollectionItem } from '../src/types';
 import type { LocalLyricChoice, LocalSaveResult, LocalTrack } from '../src/local-library-types';
 import type { SongLocalSaveResult } from '../src/song-local-save';
-import { canDownload, fetchSongFile, prepareSongBatch, songKey, trackPath } from './song-downloads';
+import { canDownload, fetchSongFile, glyphNotice, prepareSongBatch, songKey, trackPath } from './song-downloads';
 import { failure } from './song-requests';
 import { fetchDetail, jsonRequest, type WorkbenchDetail, type WorkbenchState } from './workbench-state';
 import { uncreditedVideoSavePayload } from './workbench-save-confirmation';
@@ -51,9 +51,10 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
     const skipped: string[] = [], lyricWarnings: string[] = [];
     let plainLyrics = 0, existingPlainLyrics = 0;
     const files: SavedFileLocation[] = [];
+    const warnProtectedLyrics = (title: string) => lyricWarnings.push(`${title}：已有歌词未通过校验，原文件已保留`);
     function recordSave(row: WorkspaceRow, result: SongLocalSaveResult) {
       switch (result.status) {
-        case 'saved': done++; if (result.lyrics) pairedLyrics++; break;
+        case 'saved': done++; if (result.lyrics && !result.lyricsKind) pairedLyrics++; break;
         case 'lyrics-added': addedLyrics++; break;
         case 'lyrics-saved': standaloneLyrics++; break;
         case 'exists': if (result.audio) existingSongs++; else existingLyrics++; break;
@@ -62,7 +63,8 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
       if (result.lyricsKind === 'plain' && result.lyrics) {
         if (result.status === 'exists') existingPlainLyrics++;
         else plainLyrics++;
-      }
+      } else if (result.lyricsKind === 'protected') warnProtectedLyrics(row.track.title);
+      if (result.residualGlyphs?.length) lyricWarnings.push(`${row.track.title}：字形待核对（${result.residualGlyphs.slice(0, 8).join('、')}）`);
       if (result.coverIssue) lyricWarnings.push(`${row.track.title}：歌曲已保存，投稿封面${result.coverIssue === 'missing' ? '缺失' : '暂时下载失败'}`);
       if (result.lyricsIssue) {
         const reason = result.lyricsIssue === 'review' ? '有多个歌词版本，请选择版本后重试' : result.lyricsIssue === 'unsynced' ? '未核对到这版音频的同步时码'
@@ -85,7 +87,7 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
       if (mode === 'export' && targets.length === 1 && songs.length === 1) {
         const file = await fetchSongFile(songs[0], signal, undefined, lyricScript);
         signal.throwIfAborted(); remember([{ item: songs[0], audio: file.audio }]); download(file.name, file.file);
-        setJob({ busy: false, message: `已发起「${songs[0].title}」的${songs[0].availability === 'audio-only' ? ' MP3 下载；未附加其他版本歌词。' : '音频与配套歌词下载。'}` }); return;
+        setJob({ busy: false, message: `已发起「${songs[0].title}」的${songs[0].availability === 'audio-only' ? ' MP3 下载；未附加其他版本歌词。' : file.bundle?.lyricInfo.kind === 'plain' ? '音频与纯文本歌词下载（无时码）。' : '音频与配套歌词下载。'}${glyphNotice(file.bundle?.lyricInfo.residualGlyphs)}` }); return;
       }
       for (const [index, row] of targets.entries()) {
         signal.throwIfAborted();
@@ -107,7 +109,11 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
         try {
           const detail = await resolve(row, signal);
           if (mode === 'save' && detail.local) {
-            if (detail.local.hasLyrics && detail.local.lyricsKind !== 'plain') { existingLyrics++; continue; }
+            if (detail.local.hasLyrics && detail.local.lyricsKind !== 'plain') {
+              existingLyrics++;
+              if (detail.local.lyricsKind === 'protected') warnProtectedLyrics(row.track.title);
+              continue;
+            }
             if (detail.local.lyricsKind === 'plain' && detail.timing?.status !== 'review') {
               skipped.push(`${row.track.title}：已有纯文本，请打开这一首单独查找时码`); continue;
             }
@@ -130,6 +136,9 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
             continue;
           }
           const candidateId = choices.get(row.key);
+          if (detail.result.status === 'review' && candidateId === undefined) {
+            skipped.push(`${row.track.title}：歌词版本待核对，请先选择版本`); continue;
+          }
           const chosen = chooseLyrics(candidateId !== undefined && detail.timing?.status === 'review' ? detail.timing : detail.result, candidateId, detail.track);
           if (!chosen || lyricText(chosen.result) === null) { skipped.push(`${row.track.title}：暂无可导出的歌词，或需要选择版本`); continue; }
           texts.push({ track: detail.track, result: chosen.result });
@@ -143,14 +152,22 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
           const row = targets.find(row => row.kind === 'local' && row.track.id === result.id);
           const title = row?.track.title ?? '歌曲';
           if (result.status === 'saved') { addedLyrics++; saved.add(result.id); }
-          else if (result.status === 'exists') existingLyrics++;
+          else if (result.status === 'exists') {
+            existingLyrics++;
+            if (result.lyricsKind === 'protected') warnProtectedLyrics(title);
+          }
           else { skipped.push(`${title}：${saveReason[result.status]}`); continue; }
+          if (result.residualGlyphs?.length) lyricWarnings.push(`${title}：字形待核对（${result.residualGlyphs.slice(0, 8).join('、')}）`);
           if (result.file) files.push({ title, ...(row?.kind === 'local' ? { audio: row.track.file } : {}), lyrics: result.file });
         }
         state.markLocalSaved(saved);
       }
       if (mode === 'export') {
         const data = exportEntries(texts, locals, lyricScript);
+        for (const item of data.manifest.tracks) {
+          if (!item.file && item.error) skipped.push(`${item.title}：${item.error}`);
+          else if (item.residualGlyphs) lyricWarnings.push(`${item.title}：${glyphNotice(item.residualGlyphs)}`);
+        }
         if (targets.length === 1 && data.files.length === 1 && !songs.length) {
           download(data.files[0].name.split('/').at(-1) ?? lrcFilename(targets[0].track.title), new Blob([data.files[0].text], { type: 'text/plain;charset=utf-8' }));
           done = 1;
@@ -159,6 +176,7 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
             progress => setJob({ busy: true, mode, message: `下载 ${progress.current}/${progress.total} · ${progress.title ?? ''}` }), undefined, undefined, lyricScript) : undefined;
           if (songBatch) {
             remember(songBatch.completed); done += songBatch.completed.length;
+            if (songBatch.residualGlyphs.length) lyricWarnings.push(glyphNotice(songBatch.residualGlyphs));
             for (const track of songBatch.remaining) skipped.push(`${track.title}：${songBatch.error?.message ?? '未能下载'}`);
           }
           signal.throwIfAborted();
@@ -179,7 +197,7 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
           done += data.files.length;
         }
       }
-      const summary = mode === 'save' ? [done && `已保存 ${done} 首歌曲${pairedLyrics ? `（含 ${pairedLyrics} 份配套歌词）` : ''}`, addedLyrics && `已保存 ${addedLyrics} 首歌词`,
+      const summary = mode === 'save' ? [done && `已保存 ${done} 首歌曲${pairedLyrics ? `（含 ${pairedLyrics} 份同步歌词）` : ''}`, addedLyrics && `已保存 ${addedLyrics} 首歌词`,
         standaloneLyrics && `已保存 ${standaloneLyrics} 份独立歌词（无音频）`, existingSongs && `${existingSongs} 首已在曲库`, existingLyrics && `${existingLyrics} 份歌词已存在`].filter(Boolean) : [];
       if (plainLyrics) lyricWarnings.push(`${plainLyrics} 份歌词已保存为纯文本（无时码，不进行逐句同步）`);
       if (existingPlainLyrics) lyricWarnings.push(`${existingPlainLyrics} 份已有歌词是纯文本（无时码，可在本地曲库查找时码）`);
@@ -188,7 +206,7 @@ export function useWorkbenchActions(state: WorkbenchState, choices: ReadonlyMap<
         const notes = skipped.length ? `未处理 ${skipped.length} 首：${skipped.slice(0, 3).join('；')}${skipped.length > 3 ? '…' : '。'}` : '';
         const warnings = lyricWarnings.length ? `${lyricWarnings.slice(0, 3).join('；')}${lyricWarnings.length > 3 ? ` 等 ${lyricWarnings.length} 首。` : '。'}` : '';
         setJob({ busy: false, error: !summary.length, files, message: `${summary.length ? `${summary.join(' · ')}。` : ''}${warnings}${notes}${limit}` });
-      } else setJob({ busy: false, error: done === 0, message: `导出 ${done} 首${skipped.length ? `，跳过 ${skipped.length} 首。${skipped.slice(0, 3).join('；')}` : '，下载已发起。'}${limit}` });
+      } else setJob({ busy: false, error: done === 0, message: `导出 ${done} 首${skipped.length ? `，跳过 ${skipped.length} 首。${skipped.slice(0, 3).join('；')}` : '，下载已发起。'}${lyricWarnings.length ? ` ${lyricWarnings.slice(0, 3).join('；')}` : ''}${limit}` });
     } catch (error) {
       if (!controller.signal.aborted) setJob({ busy: false, error: true, files, message: `${done + addedLyrics + standaloneLyrics ? `已写入 ${done + addedLyrics + standaloneLyrics} 项。` : ''}${signal.aborted ? '处理超时；请检查已保存文件后重试，已有文件不会覆盖。' : failure(error).message}` });
     } finally { if (task.current === controller) task.current = undefined; }

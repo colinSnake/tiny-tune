@@ -158,3 +158,11 @@ test('保留根清单文件名；不同来源的同名发行不合并，投稿�
   assert.equal(paths.add({ ...release, album: '../' }, '第二首').audio, '未归档歌曲/第二首.mp3');
   assert.equal(paths.add({ ...release, artist: '未归档歌曲', releaseId: 'other' }, '第三首').audio, '未归档歌曲 [歌手]/同名专辑/第三首.mp3');
 });
+
+test('single and batch ZIP refuse an LRC whose claimed kind hides invalid or missing timecodes', async () => {
+  const request = async () => currentZip(bundle, '夜班/歌曲', '[00:01]开头\n没有时码的正文');
+  await assert.rejects(fetchSongFile(bundle, signal, request), /歌词/);
+  const result = await prepareSongBatch([bundle], signal, () => {}, request);
+  assert.equal(result.archive, null);
+  assert.deepEqual(result.remaining, [bundle]);
+});

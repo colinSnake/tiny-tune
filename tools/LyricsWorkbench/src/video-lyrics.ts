@@ -1,3 +1,4 @@
+import { parseLrc } from './lrc';
 import { normalize, plainCandidate } from './match';
 import type { LyricCandidate, LyricResult, Track } from './types';
 
@@ -142,7 +143,8 @@ export function matchVideoLyrics(track: Track, candidates: LyricCandidate[]): Ly
     ? Math.abs(track.duration - candidate.duration) : Infinity;
   for (const candidate of candidates.filter(c => !c.instrumental && matchesVideoLyricIdentity(track, c)).sort((a, b) => distance(a) - distance(b))) {
     const plain = plainCandidate(candidate);
-    if (plain.plain && !matching.has(plain.plain)) matching.set(plain.plain, plain);
+    const words = parseLrc(plain.plain).plain;
+    if (words && !matching.has(words)) matching.set(words, plain);
   }
   const [first, ...rest] = matching.values();
   if (!first) return { status: 'missing' };

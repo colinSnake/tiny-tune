@@ -1,5 +1,5 @@
 import type { ItemState, LyricCandidate, LyricResult, Track } from './types';
-import { parseLrc } from './lrc';
+import { lyricQualityIssue } from './lyric-quality';
 import { matchesVideoLyricIdentity } from './video-lyrics';
 import { candidateResult, normalize } from './match';
 
@@ -10,7 +10,7 @@ export type LocalLyricsLookup = { track: LocalTrack; result: LyricResult; timing
 export type VideoSaveTargets = { conflict: true } | { conflict: false; exact?: string; compare: string[] };
 export type LocalLyricChoice = { id: string; candidateId: number; confirmed: boolean; mode?: 'original' | 'plain'; upgradePlain?: boolean };
 export type LocalSaveStatus = 'saved' | 'exists' | 'changed' | 'review' | 'ambiguous' | 'unsynced' | 'different-lyrics' | 'error';
-export type LocalSaveResult = { id: string; status: LocalSaveStatus; file?: string };
+export type LocalSaveResult = { id: string; status: LocalSaveStatus; file?: string; lyricsKind?: 'protected'; residualGlyphs?: string[] };
 export const localBatchLimit = 50;
 export const localTrackId = /^local-[a-f0-9]{40}$/;
 
@@ -19,7 +19,7 @@ export const localTrackId = /^local-[a-f0-9]{40}$/;
 export function fitsLocalRecording(track: Track, candidate: LyricCandidate) {
   if (track.duration === null || candidate.duration === null || Math.abs(track.duration - candidate.duration) > 2) return false;
   const result = candidateResult(candidate);
-  if (result.status === 'timed') return (parseLrc(candidate.synced).cues.at(-1)?.ms ?? 0) / 1000 <= track.duration;
+  if (result.status === 'timed') return !lyricQualityIssue(candidate.synced, track.duration, 0);
   return result.status === 'plain';
 }
 

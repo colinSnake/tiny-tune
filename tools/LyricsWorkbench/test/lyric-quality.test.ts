@@ -172,3 +172,51 @@ test('standalone lyric save rejects invalid content before creating directories'
   const result = await saveLyricsLocally(root, track, clean.synced);
   assert.equal(result.status, 'lyrics-saved');
 });
+
+test('rejects mixed timed and untimed lyric lines as a whole, even with a clean fallback', async () => {
+  const text = '[ar:测试歌手]\n[00:01]开头\n漏打时码的正文\n[00:05]结尾';
+  const bad = { ...clean, synced: text };
+  assert.deepEqual(parseLyrics(text, 120), { lyrics: null, conflict: true });
+  assert.equal(candidateResult(bad).status, 'missing');
+  assert.equal(candidateResult({ ...clean, plain: text }).status, 'missing');
+  assert.equal(matchVideoLyrics(track, [bad]).status, 'missing');
+  const { exportEntries } = await import('../src/export');
+  const data = exportEntries([{ track, result: { status: 'timed', candidate: bad } }]);
+  assert.deepEqual(data.files, []);
+  assert.equal(data.manifest.tracks[0].status, 'review');
+});
+
+test('flags skipped verses corroborated by the same record’s full text, not instrumental gaps', () => {
+  const synced = '[00:30]开头第一句\n[00:33]开头第二句\n[01:33]最后一句';
+  const candidate = { ...clean, synced, plain: '开头第一句\n开头第二句\n中段第一句\n中段第二句\n最后一句' };
+  assert.equal(candidateResult(candidate).status, 'missing');
+  assert.equal(candidateResult({ ...candidate, plain: '开头第一句\n开头第二句\n最后一句' }).status, 'timed');
+});
+
+test('rejects conflicting offsets and offsets that collapse otherwise distinct sung cues before zero', () => {
+  for (const offset of ['[offset:0]\n[offset:500]', '[offset:4000]']) {
+    assert.equal(parseLyrics(`${offset}\n[00:01]第一句\n[00:02]第二句`, 120).conflict, true);
+  }
+  assert.equal(parseLyrics('[offset:1100]\n[00:01]第一句\n[00:02]第二句', 120).lyrics?.kind, 'timed');
+});
+
+test('rejects Cantonese number-tone annotations and lyric ads without corrupting legitimate lyrics', () => {
+  const bad = { ...clean, synced: '[00:01]我鍾意你\n[00:01]ngo5 zung1 ji3 nei5' };
+  assert.equal(candidateResult(bad).status, 'missing');
+  assert.equal(candidateResult({ ...bad, synced: '[00:01]我鍾意你', plain: 'ngo5 zung1 ji3 nei5' }).status, 'missing');
+  assert.equal(parseLyrics('[00:01]第一句\n[00:02]关注公众号获取更多歌曲', 120).lyrics, null);
+  assert.equal(parseLyrics('作词：测试\n[00:01]Someone in 2026\n[00:05]我鍾意你', 120).lyrics?.kind, 'timed');
+});
+
+test('a one-line synchronized fragment cannot pass when the same record corroborates a longer lyric', () => {
+  const fragment = { ...clean, synced: '[00:05]我们一起唱歌' };
+  assert.equal(candidateResult(fragment).status, 'missing');
+});
+
+test('actual recording overrun is not silently presented as a plain fallback for the same version', () => {
+  const synced = '[offset:-800]\n[00:02]开头\n[01:59.50]结尾';
+  const candidate = { ...clean, duration: 121, album: track.albums[0], synced };
+  const state = matchLyrics(track, [candidate]);
+  assert.equal(state.status, 'review');
+  assert.equal(chooseLyrics(state, candidate.id, track), undefined);
+});

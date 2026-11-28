@@ -1,7 +1,8 @@
 import type { CollectionItem, ItemState } from './types';
-import { hasInvalidLyricCandidate } from './lyric-quality';
+import { hasInvalidLyricCandidate, validatedLyricKind } from './lyric-quality';
+import { prepareLyricPayload } from './lyric-payload';
 import type { LocalTrack } from './local-library-types';
-import { defaultLyricScript, formatLyricText, type LyricScript } from './lyric-script';
+import { defaultLyricScript, type LyricScript } from './lyric-script';
 
 const unsafe = /[\x00-\x1f\x7f<>:"/\\|?*]/;
 const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
@@ -20,8 +21,9 @@ export function lrcFilename(name: string, fromAudio = false): string {
 }
 
 export function lyricText(result: ItemState): string | null {
-  if ('candidate' in result && hasInvalidLyricCandidate(result.candidate)) return null;
-  return result.status === 'timed' ? result.candidate.synced : result.status === 'plain' ? result.candidate.plain : null;
+  if (result.status !== 'timed' && result.status !== 'plain' || hasInvalidLyricCandidate(result.candidate)) return null;
+  const text = result.status === 'timed' ? result.candidate.synced : result.candidate.plain;
+  return validatedLyricKind(text) === result.status ? text : null;
 }
 
 function directoryPart(name: string) {
@@ -33,9 +35,11 @@ export function exportEntries(items: CollectionItem[], localFiles?: ReadonlyMap<
   const files: { name: string; text: string }[] = [];
   const tracks = items.map(({ track, result }) => {
     const text = lyricText(result);
+    const expectedKind = result.status === 'timed' || result.status === 'plain' ? result.status : undefined;
+    const local = localFiles?.get(track.id);
+    const payload = text === null || !expectedKind ? undefined : prepareLyricPayload(text, local?.duration ?? track.duration, lyricScript, expectedKind);
     let file = null;
-    if (text !== null) {
-      const local = localFiles?.get(track.id);
+    if (payload) {
       const parts = local?.file.split('/') ?? [];
       const name = parts.pop();
       const folders = local ? parts : localFiles ? [track.artist || '未知歌手', track.albums[0] || '未归档'] : [];
@@ -46,13 +50,14 @@ export function exportEntries(items: CollectionItem[], localFiles?: ReadonlyMap<
       let n = 0;
       while (used.has(file.normalize('NFC').toLowerCase())) file = `${stem} [${id}${n++ ? '-' + n : ''}].lrc`;
       used.add(file.normalize('NFC').toLowerCase());
-      files.push({ name: file, text: formatLyricText(text, lyricScript) });
+      files.push({ name: file, text: payload.text });
     }
     return {
       id: track.id, title: track.title, artist: track.artist, albums: track.albums, duration: track.duration,
-      status: result.status, file,
+      status: expectedKind && !payload ? 'review' : result.status, file,
+      ...(payload?.residualGlyphs ? { residualGlyphs: payload.residualGlyphs } : {}),
       lyricSource: 'candidate' in result ? { provider: result.candidate.id < 0 ? 'demo' : 'LRCLIB', id: result.candidate.id } : null,
-      error: result.status === 'error' ? result.message : null,
+      error: result.status === 'error' ? result.message : expectedKind && !payload ? '歌词质量或时码未通过录音校验' : null,
     };
   });
   return { files, manifest: { version: 1, catalog: items.length && items.every(({ track }) => track.id.startsWith('demo-')) ? 'demo' : localFiles && items.some(item => localFiles.has(item.track.id)) ? 'local + MusicBrainz' : 'MusicBrainz', tracks } };

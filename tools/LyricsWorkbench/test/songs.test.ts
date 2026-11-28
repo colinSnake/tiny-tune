@@ -77,7 +77,7 @@ test('搜索、试听详情、同版本歌词和完整 MP3 ZIP 都绑定曲目 I
   const mp3 = Object.keys(zip.files).find(name => name.endsWith('.mp3'))!;
   assert.equal(mp3, '山谷/夜色/山谷 - 光 原声.mp3');
   assert.deepEqual(await zip.file(mp3)!.async('nodebuffer'), audio);
-  assert.equal(await zip.file(mp3.replace(/mp3$/, 'lrc'))!.async('string'), lyrics + '\n');
+  assert.equal(await zip.file(mp3.replace(/mp3$/, 'lrc'))!.async('string'), lyrics);
   const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
   assert.equal(manifest.version, 2);
   assert.equal(manifest.releaseId, '19');
@@ -97,7 +97,7 @@ test('纯文本原样打包；下载前重新验证许可、歌词以及录音 I
   assert.equal(plain.statusCode, 200, plain.body.slice(0, 300));
   const zip = await JSZip.loadAsync(plain.rawPayload);
   const lrc = Object.keys(zip.files).find(name => name.endsWith('.lrc'))!;
-  assert.equal(await zip.file(lrc)!.async('string'), '纯文本\n第二行\n');
+  assert.equal(await zip.file(lrc)!.async('string'), '纯文本\r\n第二行');
   state.row.audiodownload_allowed = false;
   assert.equal((await server.inject(detailPath)).json().track.availability, 'stream-only');
   assert.equal((await server.inject({ method: 'POST', url: downloadPath })).statusCode, 409);
@@ -189,7 +189,7 @@ test('作者授权目录无需 Jamendo 凭据，可下载整曲；不接受静�
   const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
   assert.equal(manifest.source.rights, 'https://www.jonathancoulton.com/faq/');
   assert.equal(manifest.lyrics.source, 'https://joco.wiki.gg/wiki/Test');
-  assert.equal(await zip.file(manifest.lyrics.file)!.async('string'), '我自己写的测试歌词\n下一句\n');
+  assert.equal(await zip.file(manifest.lyrics.file)!.async('string'), '我自己写的测试歌词\n下一句');
   currentLyrics = '<lyrics>不是这首</lyrics>';
   assert.equal((await server.inject({ method: 'POST', url })).statusCode, 409);
   currentLyrics = lyricText;
@@ -234,12 +234,12 @@ test('作者曲库按发行 ID 关联多个版本，简繁别名可搜，不跨�
   assert.equal(manifest.source.license, license);
   assert.equal(manifest.lyrics.source, `${url}/original.txt`);
   assert.equal(manifest.lyrics.kind, 'plain');
-  assert.equal(await zip.file(manifest.lyrics.file)!.async('string'), '试唱原声\n  第二句\n');
+  assert.equal(await zip.file(manifest.lyrics.file)!.async('string'), '\uFEFF试唱原声\r\n  第二句\r\n');
   assert.deepEqual(await zip.file(manifest.audio.file)!.async('nodebuffer'), audio);
   assert.deepEqual(requested, ['original.txt', 'original.mp3']);
   const original = await download('321', 'original');
   assert.equal(original.statusCode, 200);
-  assert.equal(await (await JSZip.loadAsync(original.rawPayload)).file(manifest.lyrics.file)!.async('string'), '試唱原聲\n  第二句\n');
+  assert.equal(await (await JSZip.loadAsync(original.rawPayload)).file(manifest.lyrics.file)!.async('string'), '\uFEFF試唱原聲\r\n  第二句\r\n');
   assert.equal((await download('322')).statusCode, 200);
   assert.deepEqual(requested.slice(-2), ['remix.txt', 'remix.mp3']);
   const batch = await prepareSongBatch(await query('测试歌手'), new AbortController().signal, () => {}, async (path, init) => {
@@ -252,7 +252,7 @@ test('作者曲库按发行 ID 关联多个版本，简繁别名可搜，不跨�
   const batchManifest = JSON.parse(await archive.file('manifest.json')!.async('string'));
   assert.deepEqual(batchManifest.tracks.map((entry: { audio: { file: string } }) => entry.audio.file),
     ['測試歌手/同一專輯/測試歌手 - 測試曲.mp3', '測試歌手/同一專輯/測試歌手 - 測試曲 Remix.mp3']);
-  assert.equal(await archive.file(batchManifest.tracks[0].lyrics.file)!.async('string'), '試唱原聲\n  第二句\n');
+  assert.equal(await archive.file(batchManifest.tracks[0].lyrics.file)!.async('string'), '\uFEFF試唱原聲\r\n  第二句\r\n');
   assert.equal(await archive.file(batchManifest.tracks[1].lyrics.file)!.async('string'), '混音版第一句\n');
   assert.equal(batchManifest.tracks[1].source.license, license);
   wrong = true;
@@ -339,4 +339,38 @@ test('ZIP revalidates lyrics before fetching audio from a stale ready record', a
     await assert.rejects(songZip(catalog, '1', new AbortController().signal));
   }
   assert.equal(calls, 0);
+});
+
+test('song ZIP checks actual MP3 duration at the packaging boundary even for a trusted catalog', async () => {
+  const { SongError } = await import('../src/songs');
+  let calls = 0;
+  const catalog = {
+    status: () => ({ configured: true, bundlesEnabled: true }),
+    search: async () => [],
+    detail: async () => ({ downloadUrl: null, track: { provider: 'artist' as const, id: '1', title: '歌', artist: '歌手', album: '', duration: 4,
+      availability: 'ready' as const, sourceUrl: 'https://example.com', licenseUrl: null, previewUrl: null,
+      lyrics: { kind: 'timed' as const, text: '[offset:-150]\n[00:01]开头\n[00:03.10]结尾' } } }),
+    audio: async () => { calls++; return audio; },
+  };
+  await assert.rejects(songZip(catalog, '1', new AbortController().signal), (e: unknown) => e instanceof SongError && e.status === 409 && /实际音频/.test(e.message));
+  assert.equal(calls, 1);
+});
+
+test('song ZIP and batch retain valid offset timing and include simplified glyph review in the manifest', async t => {
+  const { state, app } = setup(t);
+  const server = await app();
+  const timed = '\ufeff[ar:測試]\r\n[offset:-150]\r\n[00:01]望著妳\r\n[00:02.70]作曲：顧嘉煇';
+  state.row.lyrics = timed;
+  const item = (await server.inject('/api/songs?q=光')).json().tracks[0];
+  const response = await server.inject({ method: 'POST', url: downloadPath });
+  assert.equal(response.statusCode, 200, response.body.slice(0, 120));
+  const zip = await JSZip.loadAsync(response.rawPayload);
+  const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+  assert.equal(manifest.lyrics.kind, 'timed');
+  assert.deepEqual(manifest.lyrics.residualGlyphs, ['煇']);
+  assert.equal(await zip.file(manifest.lyrics.file)!.async('string'), timed.replace('望著妳', '望着你').replace('顧嘉煇', '顾嘉煇'));
+  const batch = await prepareSongBatch([item], new AbortController().signal, () => {}, async () =>
+    new Response(new Uint8Array(response.rawPayload), { headers: { 'content-type': 'application/zip' } }));
+  assert.equal(batch.completed.length, 1, batch.error?.message);
+  assert.deepEqual(batch.residualGlyphs, ['煇']);
 });

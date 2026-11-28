@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { fullTrackSync, matchAudio, resolveLocalAudio } from '../src/audio';
 import { demoAudio } from '../src/demo';
 import { lrcFilename, lyricText } from '../src/export';
+import { prepareLyricPayload } from '../src/lyric-payload';
 import { activeIndex, formatTime, parseLrc } from '../src/lrc';
 import { candidateResult } from '../src/match';
 import { fitsLocalRecording, type LocalTrack } from '../src/local-library-types';
@@ -75,7 +76,11 @@ export function Preview({ item, recordings, library, matching, onMatch, onConfir
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   }, [follows, active]);
 
-  const exportable = lyricText(result);
+  const exportable = useMemo(() => {
+    const text = lyricText(result);
+    const length = source?.coverage === 'full' ? duration ?? localRecording?.duration ?? track.duration : track.duration;
+    return text === null ? undefined : prepareLyricPayload(text, length);
+  }, [result, source?.coverage, duration, localRecording?.duration, track.duration]);
   const syncMessage = source?.coverage === 'clip' ? '试听片段不使用整曲时码。' : chosen ? localRecording
     ? canReviewLocal ? '仅试听对时，尚未确认。请核对开头、中段和结尾。' : '时长或时码不符，或音源尚未就绪；此版本不能保存到本地曲库。'
     : '确认歌词版本后才启用同步。'
@@ -138,9 +143,10 @@ export function Preview({ item, recordings, library, matching, onMatch, onConfir
       </div>}
     <div className="preview-footer">
       <small>{'candidate' in shown && (shown.candidate.id > 0 ? `歌词来源 · LRCLIB #${shown.candidate.id}` : '歌词来源 · 原创样例')}</small>
-      {localRecording && exportable !== null && <button className="text-button" type="button" disabled={matching} onClick={() => { setChoiceId(undefined); onMatch(); }}>重新查询歌词</button>}
-      <button className="button ghost" type="button" disabled={exportable === null} onClick={() => {
-        if (exportable !== null) download(lrcFilename(source?.localName ?? track.title, !!source?.localName), new Blob([exportable], { type: 'text/plain;charset=utf-8' }));
+      {localRecording && !!exportable && <button className="text-button" type="button" disabled={matching} onClick={() => { setChoiceId(undefined); onMatch(); }}>重新查询歌词</button>}
+      {exportable?.residualGlyphs && <small>字形待核对：{exportable.residualGlyphs.join('、')}</small>}
+      <button className="button ghost" type="button" disabled={!exportable} onClick={() => {
+        if (!!exportable) download(lrcFilename(source?.localName ?? track.title, !!source?.localName), new Blob([exportable.text], { type: 'text/plain;charset=utf-8' }));
       }}><Icon name="download" size={16} /> 导出 .lrc</button>
     </div>
   </div>;

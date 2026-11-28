@@ -8,7 +8,9 @@ import { saveSongLocally } from '../src/song-local-save';
 import type { SongDetail } from '../src/song-types';
 
 const track: SongDetail = { provider: 'artist', id: '12', title: '原创歌', artist: '原创歌手', album: '真实发行', releaseId: 'release-1', duration: 8, availability: 'ready', sourceUrl: 'https://example.com/song', licenseUrl: null, previewUrl: null, lyrics: { kind: 'timed', text: '[00:01]原创词' } };
-const audio = Buffer.from('original-fixture-audio');
+const frame = Buffer.alloc(417);
+frame.set([0xff, 0xfb, 0x90, 0x64]);
+const audio = Buffer.concat(Array.from({ length: 306 }, () => frame));
 test('local download preserves artist and verified release folders and never overwrites existing audio or lyrics', async t => {
   const root = await mkdtemp(join(tmpdir(), 'tinytune-song-save-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -263,4 +265,22 @@ test('local save revalidates corrupted or annotated lyric payloads before writin
 wǒ xǐ huān nǐ` } }, audio);
   assert.equal(plain.lyrics, undefined);
   assert.equal(plain.lyricsIssue, 'unsynced');
+});
+
+test('saving verified MP3 omits a sidecar whose offset-adjusted cues exceed the actual recording', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'tinytune-offset-save-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const frame = Buffer.alloc(417);
+  frame.set([0xff, 0xfb, 0x90, 0x64]);
+  const bytes = Buffer.concat(Array.from({ length: 275 }, () => frame)); // ~7.18 seconds, not the listed 8
+  const checked = { ...track, lyrics: { kind: 'timed' as const, text: '[offset:-500]\n[00:01]第一句\n[00:07]第二句' } };
+  for (const existing of [false, true]) {
+    const song = { ...checked, title: existing ? '已有音频' : '新音频' };
+    if (existing) await saveSongLocally(root, { ...song, availability: 'audio-only', lyrics: null }, bytes);
+    const result = await saveSongLocally(root, song, async () => bytes);
+    assert.equal(result.status, existing ? 'exists' : 'saved');
+    assert.equal(result.lyrics, undefined);
+    assert.equal(result.lyricsIssue, 'unsynced');
+    assert.deepEqual(await readFile(join(root, result.audio!)), bytes);
+  }
 });

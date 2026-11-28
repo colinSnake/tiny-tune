@@ -3,10 +3,11 @@ import { link, lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/pro
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { portableFilenameStem } from './export';
-import { hasLrcTiming, parseLrc } from './lrc';
 import { lyricQualityIssue } from './lyric-quality';
+import { prepareLyricPayload } from './lyric-payload';
+import { mp3Duration } from './song-mp3';
 import { maxLyricsBytes, readSidecar } from './lrc-sidecar';
-import { defaultLyricScript, formatLyricText, type LyricScript } from './lyric-script';
+import { defaultLyricScript, type LyricScript } from './lyric-script';
 import { songStem, songTitleStem, SongArchivePaths } from './song-archive';
 import { mp3Payload } from './song-metadata';
 import type { VideoSaveTargets } from './local-library-types';
@@ -27,7 +28,8 @@ export type SongLocalSaveResult = {
   audio?: string;
   lyrics?: string;
   lyricsIssue?: 'missing' | 'unsynced' | 'unavailable' | 'review';
-  lyricsKind?: 'plain';
+  lyricsKind?: 'plain' | 'protected';
+  residualGlyphs?: string[];
   coverIssue?: 'missing' | 'unavailable';
 };
 
@@ -83,7 +85,7 @@ async function publish(dir: Directory, files: { name: string; data: string | Buf
   }
 }
 
-async function inspectSong(dir: Directory, folders: string[], stem: string, sidecar: string | undefined, loadAudio: () => Promise<Buffer>,
+async function inspectSong(dir: Directory, folders: string[], stem: string, sidecar: ((audio: Buffer) => string | undefined) | undefined, loadAudio: () => Promise<Buffer>,
   verifyAudio = false): Promise<SongLocalSaveResult | 'different' | undefined> {
   const stemKey = fileKey(stem);
   const siblings = (await readdir(dir.directory, { withFileTypes: true })).filter(entry => {
@@ -98,13 +100,13 @@ async function inspectSong(dir: Directory, folders: string[], stem: string, side
       sidecars.length > 1 || sidecars.some(entry => !entry.isFile())) return { status: 'conflict' };
   const relativeAudio = [...folders, recording.name].join('/');
   const existing: SongLocalSaveResult = { status: 'exists', audio: relativeAudio };
-  if (sidecars.length) {
-    const name = sidecars[0].name;
-    const previous = await readSidecar(join(dir.directory, name)).catch(() => undefined);
-    existing.lyrics = [...folders, name].join('/');
-    if (previous?.kind === 'plain') existing.lyricsKind = 'plain';
+  const lyricName = sidecars[0]?.name;
+  const previous = lyricName ? await readSidecar(join(dir.directory, lyricName)).catch(() => undefined) : undefined;
+  if (lyricName) {
+    existing.lyrics = [...folders, lyricName].join('/');
+    if (previous?.kind !== 'timed') existing.lyricsKind = previous?.kind ?? 'protected';
   }
-  if (!verifyAudio && (sidecars.length || !sidecar)) return existing;
+  if (!verifyAudio && previous?.kind !== 'timed' && (lyricName || !sidecar)) return existing;
 
   // Use the open file's identity to prevent attaching words to a replacement during the check.
   const path = join(dir.directory, recording.name);
@@ -114,8 +116,9 @@ async function inspectSong(dir: Directory, folders: string[], stem: string, side
     const same = (stat: typeof original) => stat.isFile() && stat.dev === original.dev && stat.ino === original.ino &&
       stat.size === original.size && stat.mtimeNs === original.mtimeNs && stat.ctimeNs === original.ctimeNs;
     if (!original.isFile()) return { status: 'conflict' };
-    if (original.size > BigInt(maxAudioBytes + 3 * 1024 * 1024)) return { status: 'conflict' };
-    const audio = mp3Payload(await loadAudio());
+    if (original.size > BigInt(maxAudioBytes + 3 * 1024 * 1024)) {
+      return !verifyAudio && previous?.kind === 'timed' ? { ...existing, lyricsKind: 'protected' } : { status: 'conflict' };
+    }
     const bytes = Buffer.alloc(Number(original.size));
     let offset = 0;
     while (offset < bytes.length) {
@@ -123,12 +126,21 @@ async function inspectSong(dir: Directory, folders: string[], stem: string, side
       if (!bytesRead) return { status: 'conflict' };
       offset += bytesRead;
     }
+    if (!same(await lstat(path, { bigint: true }))) return { status: 'conflict' };
+    if (previous?.kind === 'timed') {
+      const actual = mp3Duration(bytes);
+      if (actual === null || lyricQualityIssue(previous.text, actual, 0)) existing.lyricsKind = 'protected';
+    }
+    if (!verifyAudio && lyricName) return existing; // A repeat save never downloads an already paired recording.
+    const loaded = await loadAudio();
+    const audio = mp3Payload(loaded);
     // Match encoded audio only; equal metadata or duration does not identify a recording.
     if (!same(await lstat(path, { bigint: true }))) return { status: 'conflict' };
     if (!audio.length || !mp3Payload(bytes).equals(audio)) return 'different';
-    if (sidecars.length || !sidecar) return existing;
+    const text = !lyricName && sidecar?.(loaded);
+    if (!text) return existing;
     const name = `${recording.name.slice(0, -4)}.lrc`;
-    const written = await publish(dir, [{ name, data: sidecar }], async () => {
+    const written = await publish(dir, [{ name, data: text }], async () => {
       if (!same(await lstat(path, { bigint: true }))) throw new SongError('音频已变化，未补写歌词。', 409);
     });
     return { status: written ? 'lyrics-added' : 'conflict', audio: relativeAudio, ...(written ? { lyrics: [...folders, name].join('/') } : {}) };
@@ -143,23 +155,28 @@ export async function saveSongLocally(root: string, track: SongDetail, source: B
   const validated = (audio: Buffer) => { if (!audio.length || audio.length > maxAudioBytes) throw invalid(); return audio; };
   if (track.availability !== 'ready' && track.availability !== 'audio-only' || track.availability === 'ready' && !track.lyrics?.text.trim()) throw invalid();
   if (Buffer.isBuffer(source)) validated(source);
-  const lastCue = track.lyrics?.kind === 'timed' && parseLrc(track.lyrics.text).cues.at(-1);
   const text = track.lyrics?.text ?? '';
-  const clean = Buffer.byteLength(text) <= maxLyricsBytes && !lyricQualityIssue(text, track.duration);
-  // A plain payload must not smuggle a valid or malformed time tag into a playable sidecar.
-  const plain = track.lyrics?.kind === 'plain' && clean && !hasLrcTiming(text) && !!parseLrc(text).plain;
-  const sidecar = plain ? formatLyricText(text, lyricScript) : clean && track.availability === 'ready' && lastCue && track.duration > 0 && lastCue.ms <= track.duration * 1000
-    ? formatLyricText(track.lyrics!.text, lyricScript) : undefined;
-  const report = (result: SongLocalSaveResult): SongLocalSaveResult => result.lyrics && plain && (result.status === 'saved' || result.status === 'lyrics-added')
-    ? { ...result, lyricsKind: 'plain' } : result.audio && !result.lyrics && track.lyrics
-      ? { ...result, lyricsIssue: 'unsynced' } : result;
+  const payload = track.lyrics && Buffer.byteLength(text) <= maxLyricsBytes &&
+    (track.lyrics.kind !== 'timed' || track.availability === 'ready' && track.duration > 0)
+    ? prepareLyricPayload(text, track.duration, lyricScript, track.lyrics.kind, 0.5) : undefined;
+  const sidecar = payload ? (audio: Buffer) => {
+    if (payload.kind === 'timed') {
+      const actual = mp3Duration(audio);
+      if (actual === null || lyricQualityIssue(payload.text, actual, 0)) return;
+    }
+    return payload.text;
+  } : undefined;
+  const report = (result: SongLocalSaveResult): SongLocalSaveResult => result.lyrics && payload && (result.status === 'saved' || result.status === 'lyrics-added')
+    ? { ...result, ...(payload.kind === 'plain' ? { lyricsKind: 'plain' as const } : {}),
+      ...(payload.residualGlyphs ? { residualGlyphs: payload.residualGlyphs } : {}) }
+    : result.audio && !result.lyrics && track.lyrics ? { ...result, lyricsIssue: 'unsynced' } : result;
   let downloading: Promise<Buffer> | undefined;
   const loadAudio = () => downloading ??= (typeof source === 'function' ? source().then(validated) : Promise.resolve(source));
   const conflict = { status: 'conflict' as const };
   const complete = (result: SongLocalSaveResult | 'different' | undefined) => report(result && result !== 'different' ? result : conflict);
   if (videoTargets?.conflict) return conflict;
   const base = await realpath(resolve(root));
-  async function inspectPath(existingAudio: string, text: string | undefined, verifyAudio: boolean) {
+  async function inspectPath(existingAudio: string, text: typeof sidecar, verifyAudio: boolean) {
     const parts = existingAudio.split('/');
     if (parts.some(part => !part || part === '.' || part === '..' || part.includes(String.fromCharCode(92))) || !existingAudio.toLowerCase().endsWith('.mp3')) return conflict;
     const name = parts.pop()!;
@@ -207,18 +224,17 @@ export async function saveSongLocally(root: string, track: SongDetail, source: B
   const audio = await loadAudio();
   const directory = await openDirectory(base, folders, true);
   const files: { name: string; data: string | Buffer }[] = [{ name: `${stem}.mp3`, data: audio }];
-  if (sidecar) files.push({ name: `${stem}.lrc`, data: sidecar });
+  const lyrics = sidecar?.(audio);
+  if (lyrics) files.push({ name: `${stem}.lrc`, data: lyrics });
   const written = await publish(directory!, files);
   if (!written) return complete(await inspectSong(directory!, folders, stem, sidecar, loadAudio, verifyAudio));
-  return report({ status: 'saved', audio: [...folders, `${stem}.mp3`].join('/'), ...(sidecar ? { lyrics: [...folders, `${stem}.lrc`].join('/') } : {}) });
+  return report({ status: 'saved', audio: [...folders, `${stem}.mp3`].join('/'), ...(lyrics ? { lyrics: [...folders, `${stem}.lrc`].join('/') } : {}) });
 }
 
 export async function saveLyricsLocally(root: string, track: { title: string; artist: string; duration?: number | null }, text: string, version?: string,
-  lyricScript: LyricScript = defaultLyricScript): Promise<SongLocalSaveResult> {
-  if (!track.artist.trim() || !track.title.trim() || !text.trim() || Buffer.byteLength(text) > maxLyricsBytes ||
-      lyricQualityIssue(text, track.duration)) throw new SongError('没有通过质量校验的可保存歌词。', 409);
-  const parsed = parseLrc(text);
-  if (!parsed.cues.length && !parsed.plain) throw new SongError('没有可保存的歌词。', 409);
+  lyricScript: LyricScript = defaultLyricScript, expectedKind?: 'timed' | 'plain'): Promise<SongLocalSaveResult> {
+  const payload = Buffer.byteLength(text) <= maxLyricsBytes ? prepareLyricPayload(text, track.duration, lyricScript, expectedKind) : undefined;
+  if (!track.artist.trim() || !track.title.trim() || !payload) throw new SongError('歌词质量或时码未通过校验，未保存。', 409);
   const base = await realpath(resolve(root));
   const folders = [artistFolder(track.artist), '独立歌词'];
   const directory = (await openDirectory(base, folders, true))!;
@@ -233,6 +249,11 @@ export async function saveLyricsLocally(root: string, track: { title: string; ar
   const siblings = matching.filter(entry => extname(entry.name).toLowerCase() === '.lrc');
   if (siblings.length > 1 || siblings.some(entry => !entry.isFile()) || matching.some(entry =>
     audioExtensions.has(extname(entry.name).toLowerCase()))) return { status: 'conflict' };
-  if (siblings.length) return { status: 'exists', lyrics: [...folders, siblings[0].name].join('/') };
-  return await publish(directory, [{ name, data: formatLyricText(text, lyricScript) }]) ? { status: 'lyrics-saved', lyrics: [...folders, name].join('/') } : { status: 'conflict' };
+  if (siblings.length) {
+    const previous = await readSidecar(join(directory.directory, siblings[0].name), track.duration).catch(() => undefined);
+    return { status: 'exists', lyrics: [...folders, siblings[0].name].join('/'),
+      ...(previous?.kind !== 'timed' ? { lyricsKind: previous?.kind ?? 'protected' } : {}) };
+  }
+  return await publish(directory, [{ name, data: payload.text }]) ? { status: 'lyrics-saved', lyrics: [...folders, name].join('/'),
+    ...(payload.kind === 'plain' ? { lyricsKind: 'plain' as const } : {}), ...(payload.residualGlyphs ? { residualGlyphs: payload.residualGlyphs } : {}) } : { status: 'conflict' };
 }

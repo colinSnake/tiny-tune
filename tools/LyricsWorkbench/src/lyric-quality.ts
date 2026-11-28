@@ -1,4 +1,4 @@
-import { parseLrc } from './lrc';
+import { lrcMetadata, lyricLines, parseLrc, readLrcTimeTags, timeTagMs } from './lrc';
 import type { LyricCandidate } from './types';
 
 // Syllables, rather than Latin letters alone, distinguish pronunciation annotations
@@ -27,6 +27,10 @@ const hanCount = (text: string) => [...text.matchAll(/\p{Script=Han}/gu)].length
 function pronunciation(text: string, characters: number): boolean {
   if (characters < 2) return false;
   const latin = text.replace(/\p{Script=Han}/gu, ' ');
+  const numbered = latin.match(/[a-z]+[1-6]/giu) ?? [];
+  if (numbered.length >= 2 && Math.abs(numbered.length - characters) <= Math.max(1, characters * 0.2) &&
+      !/[\p{L}\p{N}]/u.test(latin.replace(/[a-z]+[1-6]/giu, '')) &&
+      numbered.every(word => /^(?:(?:[bpmfdtnlgkhwzcsj]|ng|gw|kw)?(?:aa|oe|eo|yu|[aeiou])(?:ng|[iumnptk])?|m|ng)[1-6]$/iu.test(word))) return true;
   const tokens = latin.match(/[\p{Script=Latin}\p{M}]+[1-5]?/gu) ?? [];
   // Do not ignore other scripts, stray digits or markup when classifying a line.
   if (/[\p{L}\p{N}]/u.test(latin.replace(/[\p{Script=Latin}\p{M}]+[1-5]?/gu, ''))) return false;
@@ -37,8 +41,8 @@ function pronunciation(text: string, characters: number): boolean {
 
 export function hasPhoneticAnnotations(source: string): boolean {
   if (!/\p{Script=Han}/u.test(source)) return false;
-  const lines = source.normalize('NFC').split(/\r\n|[\r\n\u000B\u000C\u0085\u2028\u2029]/u)
-    .map(line => line.trim().replace(/^(?:\[(?:\d{1,6}:|[A-Za-z]+:)[^\]]*\])+/u, '').trim()).filter(Boolean);
+  const lines = lyricLines(source.normalize('NFC'))
+    .map(line => readLrcTimeTags(line).rest.replace(/^(?:\[[A-Za-z]+:[^\]]*\]\s*)+/u, '').trim()).filter(Boolean);
   return lines.some((line, index) => {
     const count = hanCount(line);
     if (count) return pronunciation(line, count);
@@ -61,27 +65,106 @@ export function hasPhoneticCandidate(candidate: Pick<LyricCandidate, 'synced' | 
   });
 }
 
-export type LyricQualityIssue = 'phonetic' | 'markup' | 'encoding' | 'timing';
+const inlineTime = /<(\d{1,6}):([0-5]\d)(?:\.(\d{1,3}))?>/gu;
+const timingMarker = /\[\s*[+−-]?\d+\s*[:：]/u;
+const inlineTimingMarker = /<\s*[+−-]?\d+\s*[:：]/u;
+const credit = /^(?:(?:作[词詞曲]|[填谱譜编編]曲|[词詞曲]|演唱|混音|和[声聲]|制作人|製作人|[录錄]音|歌手|原唱|[翻]?譯|[翻]?译|[统統]筹|策[划劃]|[监監]制|監製|吉他|贝斯|貝斯|[钢鋼]琴|[乐樂]器|版权声明|版權聲明|lyric(?:s|ist)?|written by|compos(?:er|ed by)|arrang(?:er|ed by)|vocals?)\s*[:：])/iu;
+const promotion = /^(?:[〖【]?(?:关注|關注|加群|添加微信).{0,12}(?:公众号|公眾號|微信|获取|獲取|下载|下載)|(?:扫码|掃碼).{0,12}(?:下载|下載|关注|關注))/u;
 
-// parseLrc deliberately tolerates unknown lines for display. Downloads must not
-// mistake that tolerance for validation or silently discard a broken time tag.
-export function lyricQualityIssue(source: string, duration?: number | null): LyricQualityIssue | undefined {
-  if (/[\uFFFD\u0000-\u0008\u000E-\u001F\u007F]/u.test(source)) return 'encoding';
-  if (/<\/?[A-Za-z][^>]*>/u.test(source)) return 'markup';
+const lyricBodyKey = (text: string) => text.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const writingSystems = [/\p{Script=Hiragana}|\p{Script=Katakana}/u, /\p{Script=Hangul}/u, /\p{Script=Han}/u,
+  /\p{Script=Latin}/u, /\p{Script=Cyrillic}/u, /\p{Script=Arabic}/u];
+
+function collapsedLyricCue(timedLines: Map<number, Set<string>>) {
+  if (timedLines.size !== 1) return false;
+  const [lines] = timedLines.values();
+  if (lines.size <= 1) return false;
+  if (lines.size > 2) return true;
+  // One lyric and its translation can share a single cue. Don't mistake a pair
+  // in clearly different writing systems for a collapsed same-language verse.
+  const [first, second] = [...lines].map(line => writingSystems.findIndex(script => script.test(line)));
+  return first < 0 || second < 0 || first === second;
+}
+
+export type LyricQualityIssue = 'phonetic' | 'markup' | 'encoding' | 'timing' | 'incomplete' | 'promotion';
+
+// parseLrc is permissive for display. Validate the original lines before anything
+// can be discarded, and use the same offset convention as the player.
+export function lyricQualityIssue(source: string, duration?: number | null, tolerance = 0.5): LyricQualityIssue | undefined {
+  if (/[\uFFFD\u0000-\u0008\u000E-\u001F\u007F-\u0084\u0086-\u009F\uD800-\uDFFF]/u.test(source)) return 'encoding';
+  if (/<!--[\s\S]*?-->|<!doctype\b|<\/?[A-Za-z][^>]*>/iu.test(source)) return 'markup';
   if (hasPhoneticAnnotations(source)) return 'phonetic';
-  for (const line of source.replace(/^\uFEFF/u, '').split(/\r\n|[\r\n\u000B\u000C\u0085\u2028\u2029]/u)) {
-    let rest = line.trim();
-    if (/^\[offset:/iu.test(rest) && !/^\[offset:\s*[+-]?\d+\s*\]$/iu.test(rest)) return 'timing';
-    if (/^\[offset:/iu.test(rest) && Math.abs(Number(rest.slice(8, -1))) > 1e9) return 'timing';
-    let tag: RegExpExecArray | null;
-    while ((tag = /^\[\d{1,6}:[0-5]\d(?:\.\d{1,3})?\]/u.exec(rest))) rest = rest.slice(tag[0].length).trimStart();
-    if (/^\[[+-]?\d+\s*[:：]/u.test(rest)) return 'timing';
+  let offset: number | undefined;
+  let untimedBody = false;
+  let hasTiming = false;
+  const times: number[] = [];
+  const sung = new Map<number, Set<string>>();
+  for (const line of lyricLines(source)) {
+    const trimmed = line.trim();
+    if (/^\[offset\s*[:：]/iu.test(trimmed)) {
+      const value = /^\[offset:\s*([+-]?\d+)\s*\]$/iu.exec(trimmed);
+      const ms = value ? Number(value[1]) : NaN;
+      if (!(Math.abs(ms) <= 1e9) || offset !== undefined && offset !== ms) return 'timing';
+      offset = ms;
+    }
+    if (lrcMetadata.test(trimmed)) continue;
+    const { times: lineTimes, rest } = readLrcTimeTags(trimmed);
+    const words = rest.replace(inlineTime, '').trim();
+    if (timingMarker.test(words) || inlineTimingMarker.test(words)) return 'timing';
+    if (promotion.test(words)) return 'promotion';
+    if (lineTimes.length) {
+      hasTiming = true;
+      const body = !credit.test(words) && lyricBodyKey(words);
+      for (const ms of lineTimes) {
+        times.push(ms);
+        if (body) {
+          const lines = sung.get(ms) ?? new Set<string>();
+          lines.add(body);
+          sung.set(ms, lines);
+        }
+      }
+      for (const stamp of rest.matchAll(inlineTime)) times.push(timeTagMs(stamp));
+    } else {
+      if (words !== rest) return 'timing';
+      if (words && !credit.test(words)) untimedBody = true;
+    }
   }
-  if (duration !== undefined && duration !== null && Number.isFinite(duration) && duration > 0 &&
-    parseLrc(source).cues.some(cue => cue.ms > (duration + 0.5) * 1000)) return 'timing';
-  return;
+  if (!hasTiming) return;
+  if (!sung.size || untimedBody || collapsedLyricCue(sung)) return 'timing';
+  const appliedOffset = offset ?? 0;
+  // Preserve the player's small clamp at zero, but not a collapsed set of sung lines.
+  if (appliedOffset > 0 && [...sung.keys()].filter(ms => ms <= appliedOffset).length > 1) return 'timing';
+  if (duration != null && Number.isFinite(duration) && duration > 0 &&
+      times.some(ms => ms - appliedOffset > (duration + tolerance) * 1000)) return 'timing';
+}
+
+export function validatedLyricKind(source: string, duration?: number | null, tolerance?: number): 'timed' | 'plain' | undefined {
+  if (lyricQualityIssue(source, duration, tolerance)) return;
+  const parsed = parseLrc(source);
+  return parsed.cues.length ? 'timed' : parsed.plain ? 'plain' : undefined;
+}
+
+function hasMissingVerses(synced: string, plain: string): boolean {
+  // Require positive evidence from this candidate's two fields. Gaps alone say
+  // nothing about missing verses (e.g. a long instrumental solo or outro).
+  const body = (lines: string[]) => lines.map(line => line.replace(inlineTime, '').trim())
+    .filter(line => line && !credit.test(line))
+    .map(lyricBodyKey).filter(Boolean);
+  const timed = body(parseLrc(synced).cues.flatMap(cue => cue.lines));
+  const reference = body(parseLrc(plain).plain.split('\n'));
+  if (!timed.length || reference.length <= timed.length) return false;
+  // Use the sequence, not a set of unique words: an omitted repeated chorus
+  // counts as missing even though its lines also appear earlier in the song.
+  let next = 0;
+  for (const line of reference) if (line === timed[next]) next++;
+  return next === timed.length;
+}
+
+export function lyricCandidateIssue(candidate: Pick<LyricCandidate, 'synced' | 'plain' | 'duration'>): LyricQualityIssue | undefined {
+  return lyricQualityIssue(candidate.synced, candidate.duration) ?? lyricQualityIssue(candidate.plain, candidate.duration) ??
+    (hasPhoneticCandidate(candidate) ? 'phonetic' : hasMissingVerses(candidate.synced, candidate.plain) ? 'incomplete' : undefined);
 }
 
 export function hasInvalidLyricCandidate(candidate: Pick<LyricCandidate, 'synced' | 'plain' | 'duration'>): boolean {
-  return hasPhoneticCandidate(candidate) || !!lyricQualityIssue(candidate.synced, candidate.duration) || !!lyricQualityIssue(candidate.plain, candidate.duration);
+  return !!lyricCandidateIssue(candidate);
 }

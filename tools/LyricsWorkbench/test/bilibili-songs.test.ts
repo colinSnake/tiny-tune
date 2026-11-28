@@ -76,7 +76,7 @@ test('B 站录音可用歌名或歌手找到，从列表直打包该版本的 MP
   const zip = await JSZip.loadAsync(reply.rawPayload, { checkCRC32: true });
   const mp3 = Object.keys(zip.files).find(file => file.endsWith('.mp3'))!;
   assert.deepEqual(await zip.file(mp3)!.async('nodebuffer'), audio);
-  assert.equal(await zip.file(mp3.replace(/\.mp3$/, '.lrc'))!.async('string'), '甲 乙\n丙\n');
+  assert.equal(await zip.file(mp3.replace(/\.mp3$/, '.lrc'))!.async('string'), '甲 乙\n丙');
   const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
   assert.equal(manifest.source.url, source);
   assert.equal(manifest.source.license, 'https://creativecommons.org/licenses/by-sa/4.0/');

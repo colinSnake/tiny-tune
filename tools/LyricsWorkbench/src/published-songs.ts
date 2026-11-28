@@ -65,18 +65,18 @@ export class PublishedCatalog implements SongCatalog {
     let actualHash: string;
     try {
       const bytes = await readBounded(response, 48 * 1024, signal);
-      content = lyricsFormat === 'text' ? new TextDecoder('utf-8', { fatal: true }).decode(bytes) : extractRevision(bytes);
+      content = lyricsFormat === 'text' ? new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) : extractRevision(bytes);
       actualHash = sha256(lyricsFormat === 'text' ? bytes : content);
     } catch {
       signal.throwIfAborted();
       throw new SongError('歌词来源没有返回已核对的版本。', 502);
     }
     if (actualHash !== lyricHash) throw new SongError('歌词来源已变更，需要重新确认版本后才能打包。', 409);
-    const text = (lyricsFormat === 'text' ? content : /<lyrics>([\s\S]+?)<\/lyrics>/.exec(content)?.[1] ?? '').replace(/\r\n?/g, '\n').trim();
+    const text = lyricsFormat === 'text' ? content : /<lyrics>([\s\S]+?)<\/lyrics>/.exec(content)?.[1] ?? '';
     const { lyrics } = parseLyrics(text, entry.duration);
     if (!lyrics) throw new SongError('没有可打包的同版本歌词。', 409);
     return { track: { ...this.summary(entry), previewUrl: audioUrl, sourceUrl, licenseUrl, rightsUrl, lyricSourceUrl,
-      lyrics: lyrics.kind === 'plain' ? { kind: 'plain', text } : lyrics }, downloadUrl: new URL(audioUrl) };
+      lyrics }, downloadUrl: new URL(audioUrl) };
   }
 
   async audio({ track }: SongRecord, signal: AbortSignal) {

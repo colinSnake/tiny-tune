@@ -140,7 +140,7 @@ export class BilibiliCatalog implements SongCatalog {
 
   audio({ track }: SongRecord, signal: AbortSignal) {
     const entry = this.entry(track.id);
-    return this.media.audio(sourceUrl(entry), track.duration, entry.audioHash, signal, entry.format, track.lyrics);
+    return this.media.audio(sourceUrl(entry), track.duration, entry.audioHash, signal, entry.format);
   }
 }
 
@@ -149,7 +149,7 @@ export class BilibiliMedia {
 
   get available() { return !!this.commands; }
 
-  async audio(url: string, duration: number, expectedHash: string | undefined, signal: AbortSignal, format = '30280', lyrics: SongRecord['track']['lyrics'] = null) {
+  async audio(url: string, duration: number, expectedHash: string | undefined, signal: AbortSignal, format = '30280') {
     const tools = this.commands;
     if (!tools) throw new SongError('B 站下载需要安装 yt-dlp 和 FFmpeg，安装后请重启服务。', 503);
     const match = /^https:\/\/www\.bilibili\.com\/video\/(BV[0-9A-Za-z]{10})\/(?:\?p=([1-9]\d{0,2}))?$/.exec(url);
@@ -183,6 +183,6 @@ export class BilibiliMedia {
       signal.throwIfAborted();
       throw new SongError('B 站音轨未能转为完整 MP3，请检查 FFmpeg 后重试。', 502);
     }
-    return readCompleteAudio(new Response(new Uint8Array(mp3), { headers: { 'content-type': 'audio/mpeg' } }), { duration, lyrics }, signal);
+    return readCompleteAudio(new Response(new Uint8Array(mp3), { headers: { 'content-type': 'audio/mpeg' } }), { duration }, signal);
   }
 }

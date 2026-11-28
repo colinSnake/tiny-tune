@@ -77,6 +77,10 @@ test('local artist search reads real audio tags but reports the actual directory
   await writeFile(f.lyrics, 'keep me');
   assert.equal((await f.save(track.id, candidate.id)).json().results[0].status, 'exists');
   assert.equal(await readFile(f.lyrics, 'utf8'), 'keep me');
+  const invalid = '[00:01]第一句\n[00:09]超出音频';
+  await writeFile(f.lyrics, invalid);
+  assert.equal((await f.save(track.id, candidate.id)).json().results[0].lyricsKind, 'protected');
+  assert.equal(await readFile(f.lyrics, 'utf8'), invalid);
 });
 
 test('needs a fresh real candidate and explicit confirmation for a version mismatch; mismatched durations cannot be saved', async t => {
@@ -185,7 +189,7 @@ test('a mismatched timeline cannot be attached to local audio, even when explici
 
 test('local plain lyrics are readable without consulting the provider, including when timing search later fails', async t => {
   const f = await fixture(t, { offline: true });
-  const original = '用户保留的正文\nSecond fixture line';
+  const original = '\uFEFF[by:原來的署名]\r\n  用户保留的正文\r\nSecond fixture line  \r\n';
   await writeFile(f.lyrics, original);
   const [{ id }] = (await f.search()).json().tracks;
   const local = await f.lookup(id);
@@ -291,4 +295,20 @@ test('local search finds a specific title, alone or combined with its artist', a
     assert.deepEqual(response.json().tracks.map((track: { title: string }) => track.title), [candidate.title]);
   }
   assert.equal((await f.search('Local Singer')).json().tracks.length, 2);
+});
+
+test('Web local save rechecks provider lyrics and reports unresolved glyphs without altering audio or LRC tags', async t => {
+  const synced = '\ufeff[ar:測試歌手]\r\n[offset:+125]\r\n[00:01]望著妳在簷下\r\n[00:06]作曲：顧嘉煇';
+  const invalid = { ...candidate, id: candidate.id + 1, synced: '[00:01]第一句\n漏打时码的正文', plain: '第一句\n漏打时码的正文' };
+  const f = await fixture(t, { online: [invalid, { ...candidate, synced }] });
+  const [track] = (await f.search()).json().tracks;
+  const lookup = (await f.lookup(track.id)).json();
+  assert.equal(lookup.result.status, 'timed');
+  assert.equal(lookup.result.candidate.id, candidate.id);
+  assert.equal((await f.save(track.id, invalid.id, true)).json().results[0].status, 'review');
+  const [entry] = (await f.save(track.id, candidate.id)).json().results;
+  assert.equal(entry.status, 'saved');
+  assert.deepEqual(entry.residualGlyphs, ['煇']);
+  assert.equal(await readFile(f.lyrics, 'utf8'), synced.replace('望著妳在簷下', '望着你在檐下').replace('顧嘉煇', '顾嘉煇'));
+  assert.deepEqual(await readFile(f.file), f.audio);
 });

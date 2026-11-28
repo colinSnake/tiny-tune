@@ -2,9 +2,10 @@ import JSZip from 'jszip';
 import { createHash } from 'node:crypto';
 import { BodyTooLarge, readBounded } from './response-body';
 import { SongArchivePaths, songStem } from './song-archive';
-import { hasLrcTiming, parseLrc } from './lrc';
+import { parseLrc } from './lrc';
 import { lyricQualityIssue } from './lyric-quality';
-import { defaultLyricScript, formatLyricText, type LyricScript } from './lyric-script';
+import { prepareLyricPayload } from './lyric-payload';
+import { defaultLyricScript, type LyricScript } from './lyric-script';
 import { RequestQueue, UpstreamError } from './providers';
 import { mp3Duration } from './song-mp3';
 import { normalizeSearch, type SongAvailability, type SongCatalogStatus, type SongDetail, type SongSummary } from './song-types';
@@ -59,14 +60,12 @@ function licenseUrl(value: unknown) {
 
 export function parseLyrics(value: unknown, duration: number): { lyrics: SongDetail['lyrics']; conflict: boolean } {
   if (typeof value !== 'string' || value.length > maxLyrics) return { lyrics: null, conflict: false };
-  const text = value.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
-  if (!text || /<\/?(?:html|body|script|div|p|br)\b/i.test(text)) return { lyrics: null, conflict: false };
+  const text = value;
+  if (!text.trim()) return { lyrics: null, conflict: false };
   const issue = lyricQualityIssue(text, duration);
   if (issue) return { lyrics: null, conflict: issue === 'timing' };
   const { cues, plain } = parseLrc(text);
-  const hasTiming = hasLrcTiming(text);
-  const conflict = hasTiming && !cues.length || cues.some(cue => cue.ms > (duration + 0.5) * 1000);
-  return { lyrics: conflict ? null : cues.length ? { kind: 'timed', text } : plain ? { kind: 'plain', text: plain } : null, conflict };
+  return { lyrics: cues.length ? { kind: 'timed', text } : plain ? { kind: 'plain', text } : null, conflict: false };
 }
 
 export function songRetryAt(response: Response) {
@@ -201,7 +200,7 @@ export class JamendoCatalog implements SongCatalog {
 
 export const sha256 = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 
-export async function readCompleteAudio(response: Response, track: Pick<SongDetail, 'duration' | 'lyrics'>, signal: AbortSignal) {
+export async function readCompleteAudio(response: Response, track: Pick<SongDetail, 'duration'>, signal: AbortSignal) {
   const mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
   const length = response.headers.get('content-length');
   const expected = length === null ? null : Number(length);
@@ -225,9 +224,6 @@ export async function readCompleteAudio(response: Response, track: Pick<SongDeta
   if (actual === null || Math.abs(actual - track.duration) > tolerance) {
     throw new SongError('获取到的音频损坏，或与这版录音的整曲时长不符。', 502);
   }
-  if (track.lyrics?.kind === 'timed' && parseLrc(track.lyrics.text).cues.some(cue => cue.ms > (actual + 0.25) * 1000)) {
-    throw new SongError('歌词时码超过实际音频长度，未生成下载包。', 409);
-  }
   return audio;
 }
 
@@ -235,18 +231,25 @@ export async function songZip(catalog: SongCatalog, id: string, signal: AbortSig
   const record = await catalog.detail(id, signal);
   const { track } = record;
   if (track.availability !== 'ready' || !track.lyrics) throw new SongError(songAvailability[track.availability], 409);
-  const verified = parseLyrics(track.lyrics.text, track.duration);
-  if (!verified.lyrics || verified.lyrics.kind !== track.lyrics.kind) throw new SongError('歌词未通过质量校验，请重新选择同版本歌词。', 409);
+  if (track.lyrics.text.length > maxLyrics) throw new SongError('歌词超过打包体积上限。', 409);
+  const payload = prepareLyricPayload(track.lyrics.text, track.duration, lyricScript, track.lyrics.kind, 0.5);
+  if (!payload) throw new SongError('歌词质量或时码未通过校验，请重新选择同版本歌词。', 409);
   const audio = await catalog.audio(record, signal);
   signal.throwIfAborted();
+  if (payload.kind === 'timed') {
+    const actual = mp3Duration(audio);
+    if (actual === null || lyricQualityIssue(payload.text, actual, 0)) {
+      throw new SongError('歌词时码不符合实际音频长度，未生成下载包。', 409);
+    }
+  }
   const stem = songStem(track);
   const { audio: mp3, lyrics: lrc } = new SongArchivePaths().add(track, stem);
   const zip = new JSZip();
   zip.file(mp3, audio);
-  zip.file(lrc, `${formatLyricText(track.lyrics.text, lyricScript)}\n`);
+  zip.file(lrc, payload.text);
   zip.file('manifest.json', JSON.stringify({ version: 2, title: track.title, artist: track.artist, album: track.album, releaseId: track.releaseId,
     duration: track.duration, source: { provider: track.provider, id, url: track.sourceUrl, license: track.licenseUrl, rights: track.rightsUrl, credits: track.credits },
-    audio: { file: mp3, format: 'mp3' }, lyrics: { file: lrc, kind: track.lyrics.kind, source: track.lyricSourceUrl ?? track.sourceUrl } }, null, 2) + '\n');
+    audio: { file: mp3, format: 'mp3' }, lyrics: { file: lrc, kind: payload.kind, ...(payload.residualGlyphs ? { residualGlyphs: payload.residualGlyphs } : {}), source: track.lyricSourceUrl ?? track.sourceUrl } }, null, 2) + '\n');
   // JSZip's async progress callback cannot safely propagate a thrown abort. Finish bounded in-memory
   // generation, then discard the result on abort rather than letting an exception escape the worker.
   const body = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE', streamFiles: true });

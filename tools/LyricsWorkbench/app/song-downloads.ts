@@ -1,4 +1,5 @@
 import { SongArchivePaths, songBundleStem, songStem } from '../src/song-archive';
+import { validatedLyricKind } from '../src/lyric-quality';
 import type { LyricScript } from '../src/lyric-script';
 import type { SongSummary } from '../src/song-types';
 import { checked, failure, RequestFailure, type Failure } from './song-requests';
@@ -14,8 +15,14 @@ type ManifestFields = Record<string, unknown>;
 type SongFile = { name: string; file: Blob; audio: Blob; bundle?: { stem: string; lyrics: string; release: SongSummary;
   source: ManifestFields; audioInfo: ManifestFields; lyricInfo: ManifestFields } };
 const fields = (value: unknown): ManifestFields => value && typeof value === 'object' && !Array.isArray(value) ? value as ManifestFields : {};
+const glyphsOf = (value: unknown) => Array.isArray(value) ? value.filter((glyph): glyph is string =>
+  typeof glyph === 'string' && /^\p{Script=Han}$/u.test(glyph)) : [];
+export function glyphNotice(value: unknown) {
+  const glyphs = glyphsOf(value);
+  return glyphs.length ? `字形待核对（${glyphs.slice(0, 8).join('、')}${glyphs.length > 8 ? '…' : ''}）。` : '';
+}
 export type BatchProgress = { current: number; total: number; title?: string };
-export type BatchResult = { archive: Blob | null; completed: { item: SongSummary; audio: Blob }[]; remaining: SongSummary[]; error?: Failure };
+export type BatchResult = { archive: Blob | null; completed: { item: SongSummary; audio: Blob }[]; remaining: SongSummary[]; residualGlyphs: string[]; error?: Failure };
 
 export async function fetchSongFile(item: SongSummary, signal: AbortSignal, request: FetchSong = fetch, lyricScript?: LyricScript): Promise<SongFile> {
   signal.throwIfAborted();
@@ -56,12 +63,17 @@ export async function fetchSongFile(item: SongSummary, signal: AbortSignal, requ
       album: typeof manifest.album === 'string' ? manifest.album : '',
       artist: typeof manifest.artist === 'string' ? manifest.artist : item.artist,
       releaseId: typeof manifest.releaseId === 'string' ? manifest.releaseId : undefined };
-    const [bytes, lyrics] = await Promise.all([audioFile.async('arraybuffer'), lyricFile.async('string')]);
+    const [bytes, lyricBytes] = await Promise.all([audioFile.async('arraybuffer'), lyricFile.async('uint8array')]);
     signal.throwIfAborted();
-    if (!bytes.byteLength || bytes.byteLength > maxSongBytes || !lyrics || lyrics.length > 64 * 1024) throw new Error('Invalid content');
+    if (!bytes.byteLength || bytes.byteLength > maxSongBytes || !lyricBytes.byteLength || lyricBytes.byteLength > 256 * 1024) throw new Error('Invalid content');
+    const lyrics = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(lyricBytes);
+    const kind = validatedLyricKind(lyrics, release.duration);
+    // Older bundles did not declare a kind. Current ones must not mislabel timing.
+    if (!kind || version === 2 && lyricInfo.kind !== kind) throw new RequestFailure('下载包中的歌词或时码未通过校验。');
     return { name: `${stem}.zip`, file, audio: new Blob([bytes], { type: 'audio/mpeg' }), bundle: { stem: bundleStem, lyrics, release, source, audioInfo, lyricInfo } };
-  } catch {
+  } catch (error) {
     signal.throwIfAborted();
+    if (error instanceof RequestFailure) throw error;
     throw new RequestFailure('下载包损坏，或缺少同版本音频与歌词。');
   }
 }
@@ -75,6 +87,7 @@ export async function prepareSongBatch(items: readonly SongSummary[], signal: Ab
   const paths = new SongArchivePaths();
   const manifest: ManifestFields[] = [];
   const completed: BatchResult['completed'] = [], remaining: SongSummary[] = [];
+  const residualGlyphs = new Set<string>();
   let size = 0, error: Failure | undefined;
   for (const [index, item] of tracks.entries()) {
     signal.throwIfAborted();
@@ -92,7 +105,10 @@ export async function prepareSongBatch(items: readonly SongSummary[], signal: Ab
       const { title, album, artist, releaseId, duration } = bundle?.release ?? item;
       const path = paths.add({ provider: item.provider, album, artist, releaseId }, bundle?.stem ?? songStem(item));
       zip.file(path.audio, bytes);
-      if (bundle) zip.file(path.lyrics, bundle.lyrics);
+      if (bundle) {
+        zip.file(path.lyrics, bundle.lyrics);
+        for (const glyph of glyphsOf(bundle.lyricInfo.residualGlyphs)) residualGlyphs.add(glyph);
+      }
       manifest.push({ title, artist, album, releaseId, duration,
         source: { ...bundle?.source, provider: item.provider, id: item.id },
         audio: { ...bundle?.audioInfo, file: path.audio, format: 'mp3' },
@@ -111,10 +127,10 @@ export async function prepareSongBatch(items: readonly SongSummary[], signal: Ab
       remaining.push(item);
     }
   }
-  if (!completed.length) return { archive: null, completed, remaining, error };
+  if (!completed.length) return { archive: null, completed, remaining, residualGlyphs: [...residualGlyphs], error };
   progress({ current: tracks.length, total: tracks.length });
   zip.file('manifest.json', JSON.stringify({ version: 2, tracks: manifest }, null, 2) + '\n');
   const archive = await zip.generateAsync({ type: 'blob', compression: 'STORE', streamFiles: true });
   signal.throwIfAborted();
-  return { archive, completed, remaining, error };
+  return { archive, completed, remaining, residualGlyphs: [...residualGlyphs], error };
 }

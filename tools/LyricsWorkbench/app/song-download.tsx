@@ -4,7 +4,7 @@ import { pickAutomaticSong, rankSongs, songProviderLabels, songProviders, type S
 import { checked, failure, RequestFailure, SongSearchRequest, type Failure, type SourceResult } from './song-requests';
 import { download, Icon } from './ui';
 import { LoadingRecording, LoadingRows } from './loading';
-import { canDownload, fetchSongFile, prepareSongBatch, songKey, trackPath, type BatchProgress } from './song-downloads';
+import { canDownload, fetchSongFile, glyphNotice, prepareSongBatch, songKey, trackPath, type BatchProgress } from './song-downloads';
 import { useSongPlayback } from './song-playback';
 
 const LocalLyrics = lazy(() => import('./page'));
@@ -26,11 +26,12 @@ const availabilityLabel = (track: SongSummary) => track.provider === 'bilibili-v
   ? '查看详情' : track.provider === 'bilibili-video' && track.availability === 'stream-only' ? '仅播放' : availabilityLabels[track.availability];
 
 type DownloadState = { item: SongSummary; from: 'results' | 'detail' } & (
-  | { state: 'pending' | 'saved' }
+  | { state: 'pending' }
+  | { state: 'saved'; note?: string }
   | { state: 'failed'; error: Failure }
 );
 
-type BatchState = { state: 'pending'; progress: BatchProgress } | { state: 'finished'; count: number; remaining: number; error?: Failure };
+type BatchState = { state: 'pending'; progress: BatchProgress } | { state: 'finished'; count: number; remaining: number; error?: Failure; note?: string };
 
 function RequestNote({ error, onRetry, retryLabel = '重试', retryDisabled = false }: { error: Failure; onRetry: () => void; retryLabel?: string; retryDisabled?: boolean }) {
   const [now, setNow] = useState(Date.now);
@@ -56,7 +57,7 @@ function DownloadNote({ job, onCancel, onRetry }: { job: DownloadState; onCancel
   if (job.state === 'failed') return <RequestNote error={{ ...job.error, message: `「${job.item.title}」：${job.error.message}` }} retryLabel="重试下载" onRetry={onRetry} />;
   return <div className="song-download-note"><p role="status">
     {job.state === 'pending' ? <><span className="search-spinner" aria-hidden="true" /> 正在准备「{job.item.title}」的{job.item.availability === 'audio-only' ? 'MP3' : '下载包'}</>
-      : <><Icon name="download" size={16} /> 已发起「{job.item.title}」的下载。{job.item.availability === 'audio-only' ? '单首 MP3，不含歌词。' : '解压后请将 MP3 与同名 LRC 放在一起。'}</>}
+      : <><Icon name="download" size={16} /> 已发起「{job.item.title}」的下载。{job.item.availability === 'audio-only' ? '单首 MP3，不含歌词。' : '解压后请将 MP3 与同名 LRC 放在一起。'}{job.note}</>}
   </p>{job.state === 'pending' && <button type="button" className="button ghost" onClick={onCancel}>取消下载</button>}</div>;
 }
 
@@ -265,11 +266,11 @@ export default function SongDownload({ showLocalLyrics }: { showLocalLyrics: boo
     downloadRequest.current = request;
     setJob({ item, from, state: 'pending' });
     try {
-      const { name, file, audio } = await fetchSongFile(item, request.signal);
+      const { name, file, audio, bundle } = await fetchSongFile(item, request.signal);
       request.signal.throwIfAborted();
       download(name, file);
       playback.remember([{ item, audio }]);
-      setJob({ item, from, state: 'saved' });
+      setJob({ item, from, state: 'saved', note: `${bundle?.lyricInfo.kind === 'plain' ? '歌词为纯文本，无时码。' : ''}${glyphNotice(bundle?.lyricInfo.residualGlyphs)}` });
     } catch (error) {
       if (!request.signal.aborted) setJob({ item, from, state: 'failed', error: failure(error) });
     } finally {
@@ -315,7 +316,7 @@ export default function SongDownload({ showLocalLyrics }: { showLocalLyrics: boo
       }
       setBatchKeys(new Set(result.remaining.map(songKey)));
       if (!result.remaining.length) setBatchMode(false);
-      setBatch({ state: 'finished', count: result.completed.length, remaining: result.remaining.length, error: result.error });
+      setBatch({ state: 'finished', count: result.completed.length, remaining: result.remaining.length, error: result.error, note: glyphNotice(result.residualGlyphs) });
     } catch (error) {
       if (!request.signal.aborted) setBatch({ state: 'finished', count: 0, remaining: items.length, error: failure(error) });
     } finally {
@@ -330,9 +331,9 @@ export default function SongDownload({ showLocalLyrics }: { showLocalLyrics: boo
       {batch.progress.title ? `${batch.progress.current || 1}/${batch.progress.total} · 正在下载「${batch.progress.title}」` : '正在打包 ZIP…'}</p>
       <button type="button" className="button ghost" onClick={cancelBatch}>取消下载</button></div>
     : batch?.state === 'finished' ? batch.error
-      ? <RequestNote error={{ ...batch.error, message: `${batch.count ? `已打包 ${batch.count} 首，` : ''}还有 ${batch.remaining} 首未完成。${batch.error.message}` }}
+      ? <RequestNote error={{ ...batch.error, message: `${batch.count ? `已打包 ${batch.count} 首，` : ''}还有 ${batch.remaining} 首未完成。${batch.error.message}${batch.note ?? ''}` }}
         onRetry={() => void saveBatch(batchItems)} retryLabel="下载剩余歌曲" retryDisabled={downloading || !batchItems.length} />
-      : <div className="song-download-note"><p role="status">已发起 {batch.count} 首歌曲的 ZIP 下载，可试听其中的音频。</p></div> : null;
+      : <div className="song-download-note"><p role="status">已发起 {batch.count} 首歌曲的 ZIP 下载，可试听其中的音频。{batch.note}</p></div> : null;
   const downloadFeedback = job && <DownloadNote job={job} onCancel={cancelDownload} onRetry={() => void saveTrack(job.item, job.from)} />;
 
   return <>

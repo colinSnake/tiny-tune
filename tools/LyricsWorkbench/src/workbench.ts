@@ -1,4 +1,5 @@
 import { lyricText } from './export';
+import { lyricQualityIssue } from './lyric-quality';
 import { candidateResult, normalize, plainCandidate } from './match';
 import { fitsLocalRecording, matchesLocalLyricIdentity, type LocalTrack } from './local-library-types';
 import { rankSongs, type SongSummary, type SongAvailability } from './song-types';
@@ -9,16 +10,19 @@ export function chooseLyrics(state: ItemState, id?: number, local?: Track) {
   const candidate = state.status === 'review'
     ? id === undefined ? state.candidates[0] : state.candidates.find(c => c.id === id)
     : 'candidate' in state ? state.candidate : undefined;
-  if (!candidate || candidateResult(candidate).status === 'missing') return;
+  if (!candidate) return;
+  const original = candidateResult(candidate);
+  if (original.status === 'missing') return;
   const sameIdentity = !local || matchesLocalLyricIdentity(local, candidate);
   // Video candidates are already screened by song/artist on the server; the default is a preview only.
   if (local?.id.startsWith('bilibili-video:')) {
     return { candidate, result: candidateResult(plainCandidate(candidate)), mode: 'plain' as const };
   }
   if (state.status === 'review' && id === undefined && !sameIdentity) return;
+  if (local && sameIdentity && original.status === 'timed' && lyricQualityIssue(candidate.synced, local.duration, 0)) return;
   const mode = local && (!sameIdentity || !fitsLocalRecording(local, candidate) ||
     (local as Partial<LocalTrack>).confirmTiming && state.status === 'review' && id === undefined) ? 'plain' as const : 'original' as const;
-  const result = candidateResult(mode === 'plain' ? plainCandidate(candidate) : candidate);
+  const result = mode === 'plain' ? candidateResult(plainCandidate(candidate)) : original;
   return { candidate, result, mode };
 }
 
